@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: network-logger-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-network_logging}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  capture:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: network-logger-capture
+    command: python main.py
+    environment:
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-network_logging}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - CAPTURE_PORTS=${CAPTURE_PORTS:-}
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ORPHANED_IP_DAYS=${ORPHANED_IP_DAYS:-7}
+    network_mode: host  # Required for packet capture
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: network-logger-api
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000
+    environment:
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-network_logging}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+  webui:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    container_name: network-logger-webui
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    volumes:
+      - ./webui:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+
