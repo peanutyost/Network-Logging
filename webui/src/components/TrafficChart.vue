@@ -95,7 +95,7 @@ export default {
                 label: 'Bytes Sent',
                 data: data.map(d => d.bytes_sent),
                 borderColor: 'rgb(75, 192, 192)',
- started               backgroundColor: 'rgba(75, 192, 192, 0.2)'
+                backgroundColor: 'rgba(75, 192, 192, 0.2)'
               },
               {
                 label: 'Bytes Received',

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: network-logger-db
+    container_name: logger-db
     environment:
       POSTGRES_DB: ${DB_NAME:-network_logging}
       POSTGRES_USER: ${DB_USER:-postgres}
@@ -22,7 +22,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: network-logger-capture
+    container_name: logger-capture
     command: python main.py
     environment:
       - DB_TYPE=postgresql
@@ -49,7 +49,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: network-logger-api
+    container_name: logger-api
     command: uvicorn api.app:app --host 0.0.0.0 --port 8000
     environment:
       - DB_TYPE=postgresql
@@ -70,7 +70,7 @@ services:
     build:
       context: ./webui
       dockerfile: Dockerfile
-    container_name: network-logger-webui
+    container_name: logger-webui
     ports:
       - "3000:3000"
     environment:
