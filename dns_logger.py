@@ -28,17 +28,35 @@ class DNSLogger:
                 - domain: Domain name
                 - query_type: DNS query type (A, AAAA, etc.)
                 - resolved_ips: List of IP addresses (for responses)
+                - source_ip: Source IP
+                - destination_ip: Destination IP
                 - timestamp: Packet timestamp
         """
         try:
             dns_type = dns_data.get('type')
             domain = dns_data.get('domain')
             query_type = dns_data.get('query_type', 'A')
+            source_ip = dns_data.get('source_ip')
+            destination_ip = dns_data.get('destination_ip')
             
             if not domain:
                 return
             
-            # For queries, we log them but wait for the response to get IPs
+            # Record per-event row
+            try:
+                self.db.insert_dns_event(
+                    event_type=dns_type or 'query',
+                    domain=domain,
+                    query_type=query_type,
+                    source_ip=source_ip or '',
+                    destination_ip=destination_ip or '',
+                    resolved_ips=dns_data.get('resolved_ips') if dns_type == 'response' else None,
+                    timestamp=datetime.fromtimestamp(dns_data.get('timestamp', datetime.utcnow().timestamp()))
+                )
+            except Exception as e:
+                logger.debug(f"Error inserting dns_event: {e}")
+            
+            # Log lookups for summary table
             if dns_type == 'query':
                 # Only log if we don't have a recent entry
                 existing = self.db.get_dns_lookup_by_domain(domain)
@@ -51,7 +69,6 @@ class DNSLogger:
                     timestamp = datetime.fromtimestamp(dns_data.get('timestamp', datetime.utcnow().timestamp()))
                     self.db.insert_dns_lookup(domain, query_type, [], timestamp)
             
-            # For responses, we log the resolved IPs
             elif dns_type == 'response':
                 resolved_ips = dns_data.get('resolved_ips', [])
                 if not resolved_ips:
@@ -67,9 +84,8 @@ class DNSLogger:
                 self.db.insert_dns_lookup(domain, query_type, resolved_ips, timestamp, first_seen)
                 logger.debug(f"Logged DNS response: {domain} -> {resolved_ips}")
                 
-                # Trigger WHOIS lookup for new domains or if cache is old
+                # Trigger WHOIS lookup for new domains
                 if is_new_domain:
-                    # Async WHOIS lookup for new domains (don't block packet processing)
                     try:
                         import threading
                         threading.Thread(target=self.whois_service.get_whois, args=(domain,), daemon=True).start()

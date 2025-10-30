@@ -6,13 +6,15 @@ import DomainSearch from './views/DomainSearch.vue'
 import TrafficAnalytics from './views/TrafficAnalytics.vue'
 import ThreatHunting from './views/ThreatHunting.vue'
 import DnsQueries from './views/DnsQueries.vue'
+import DnsEvents from './views/DnsEvents.vue'
 
 const routes = [
   { path: '/', component: Dashboard },
   { path: '/domains', component: DomainSearch },
+  { path: '/dns-queries', component: DnsQueries },
+  { path: '/dns-events', component: DnsEvents },
   { path: '/traffic', component: TrafficAnalytics },
-  { path: '/threats', component: ThreatHunting },
-  { path: '/dns-queries', component: DnsQueries }
+  { path: '/threats', component: ThreatHunting }
 ]
 
 const router = createRouter({

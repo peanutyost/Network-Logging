@@ -26,6 +26,18 @@ class WhoisResponse(BaseModel):
     created_at: datetime
 
 
+class DNSEventResponse(BaseModel):
+    """DNS per-event model."""
+    id: int
+    event_type: str
+    domain: str
+    query_type: str
+    source_ip: str
+    destination_ip: str
+    resolved_ips: Optional[List[str]] = None
+    event_timestamp: datetime
+
+
 class TrafficFlowResponse(BaseModel):
     """Traffic flow response model."""
     id: int

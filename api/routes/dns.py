@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from datetime import datetime
 
-from api.models import DNSLookupResponse, DomainSearchRequest, WhoisResponse
+from api.models import DNSLookupResponse, DomainSearchRequest, WhoisResponse, DNSEventResponse
 from api.dependencies import get_db
 from database.base import DatabaseBase
 from whois_service import WhoisService
@@ -36,6 +36,21 @@ async def get_recent_dns(
     if limit < 1 or limit > 1000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
     return db.get_recent_dns_queries(limit=limit, since=since)
+
+
+@router.get("/events", response_model=List[DNSEventResponse])
+async def get_dns_events(
+    limit: int = 500,
+    since: Optional[datetime] = None,
+    source_ip: Optional[str] = None,
+    domain: Optional[str] = None,
+    event_type: Optional[str] = None,
+    db: DatabaseBase = Depends(get_db)
+):
+    """Get DNS events with optional filters."""
+    if limit < 1 or limit > 5000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+    return db.get_dns_events(limit=limit, since=since, source_ip=source_ip, domain=domain, event_type=event_type)
 
 
 @router.get("/domain/{domain}", response_model=DNSLookupResponse)

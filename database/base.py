@@ -58,6 +58,33 @@ class DatabaseBase(ABC):
     ) -> List[Dict[str, Any]]:
         """Get recent DNS queries ordered by last_seen desc."""
         pass
+
+    # DNS Events (per-packet/query/response)
+    @abstractmethod
+    def insert_dns_event(
+        self,
+        event_type: str,  # 'query' | 'response'
+        domain: str,
+        query_type: str,
+        source_ip: str,
+        destination_ip: str,
+        resolved_ips: Optional[List[str]] = None,
+        timestamp: Optional[datetime] = None
+    ) -> int:
+        """Insert a DNS event row."""
+        pass
+
+    @abstractmethod
+    def get_dns_events(
+        self,
+        limit: int = 500,
+        since: Optional[datetime] = None,
+        source_ip: Optional[str] = None,
+        domain: Optional[str] = None,
+        event_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Query DNS events with optional filters."""
+        pass
     
     # Traffic Flow operations
     @abstractmethod

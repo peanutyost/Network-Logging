@@ -131,7 +131,24 @@ class SQLiteDatabase(DatabaseBase):
             
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_whois_domain ON whois_data(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_whois_updated ON whois_data(whois_updated_at)")
-            
+
+            # DNS Events table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS dns_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL, -- 'query' or 'response'
+                    domain TEXT NOT NULL,
+                    query_type TEXT NOT NULL,
+                    source_ip TEXT NOT NULL,
+                    destination_ip TEXT NOT NULL,
+                    resolved_ips TEXT,
+                    event_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_time ON dns_events(event_timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_domain ON dns_events(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_src ON dns_events(source_ip)")
+
             self.conn.commit()
             logger.info("Database tables created successfully")
         except Exception as e:
@@ -555,4 +572,79 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error getting WHOIS data: {e}")
             return None
+
+    def insert_dns_event(
+        self,
+        event_type: str,
+        domain: str,
+        query_type: str,
+        source_ip: str,
+        destination_ip: str,
+        resolved_ips: Optional[List[str]] = None,
+        timestamp: Optional[datetime] = None
+    ) -> int:
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO dns_events (
+                    event_type, domain, query_type, source_ip, destination_ip, resolved_ips, event_timestamp
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_type, domain, query_type, source_ip, destination_ip,
+                    json.dumps(resolved_ips) if resolved_ips else None,
+                    timestamp,
+                ),
+            )
+            self.conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            logger.error(f"Error inserting DNS event: {e}")
+            raise
+
+    def get_dns_events(
+        self,
+        limit: int = 500,
+        since: Optional[datetime] = None,
+        source_ip: Optional[str] = None,
+        domain: Optional[str] = None,
+        event_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            clauses = []
+            params: List[Any] = []  # type: ignore
+            if since:
+                clauses.append("event_timestamp >= ?")
+                params.append(since)
+            if source_ip:
+                clauses.append("source_ip = ?")
+                params.append(source_ip)
+            if domain:
+                clauses.append("domain = ?")
+                params.append(domain)
+            if event_type:
+                clauses.append("event_type = ?")
+                params.append(event_type)
+            where_sql = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+            sql = f"""
+                SELECT * FROM dns_events
+                {where_sql}
+                ORDER BY event_timestamp DESC
+                LIMIT ?
+            """
+            params.append(limit)
+            cursor.execute(sql, tuple(params))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error fetching DNS events: {e}")
+            return []
 

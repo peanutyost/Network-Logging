@@ -151,6 +151,23 @@ class PostgreSQLDatabase(DatabaseBase):
                 
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_whois_domain ON whois_data(domain)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_whois_updated ON whois_data(whois_updated_at)")
+
+                # DNS Events table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS dns_events (
+                        id SERIAL PRIMARY KEY,
+                        event_type VARCHAR(10) NOT NULL, -- 'query' or 'response'
+                        domain VARCHAR(255) NOT NULL,
+                        query_type VARCHAR(10) NOT NULL,
+                        source_ip INET NOT NULL,
+                        destination_ip INET NOT NULL,
+                        resolved_ips JSONB,
+                        event_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_time ON dns_events(event_timestamp)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_domain ON dns_events(domain)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_src ON dns_events(source_ip)")
                 
                 conn.commit()
                 logger.info("Database tables created successfully")
@@ -582,6 +599,82 @@ class PostgreSQLDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error getting WHOIS data: {e}")
             return None
+        finally:
+            self._return_connection(conn)
+
+    def insert_dns_event(
+        self,
+        event_type: str,
+        domain: str,
+        query_type: str,
+        source_ip: str,
+        destination_ip: str,
+        resolved_ips: Optional[List[str]] = None,
+        timestamp: Optional[datetime] = None
+    ) -> int:
+        if timestamp is None:
+            timestamp = datetime.utcnow()
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO dns_events (
+                        event_type, domain, query_type, source_ip, destination_ip, resolved_ips, event_timestamp
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (event_type, domain, query_type, source_ip, destination_ip, json.dumps(resolved_ips) if resolved_ips else None, timestamp)
+                )
+                rid = cur.fetchone()[0]
+                conn.commit()
+                return rid
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error inserting DNS event: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+
+    def get_dns_events(
+        self,
+        limit: int = 500,
+        since: Optional[datetime] = None,
+        source_ip: Optional[str] = None,
+        domain: Optional[str] = None,
+        event_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                clauses = []
+                params: List[Any] = []  # type: ignore
+                if since:
+                    clauses.append("event_timestamp >= %s")
+                    params.append(since)
+                if source_ip:
+                    clauses.append("source_ip = %s")
+                    params.append(source_ip)
+                if domain:
+                    clauses.append("domain = %s")
+                    params.append(domain)
+                if event_type:
+                    clauses.append("event_type = %s")
+                    params.append(event_type)
+                where_sql = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+                sql = f"""
+                    SELECT * FROM dns_events
+                    {where_sql}
+                    ORDER BY event_timestamp DESC
+                    LIMIT %s
+                """
+                params.append(limit)
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error fetching DNS events: {e}")
+            return []
         finally:
             self._return_connection(conn)
 

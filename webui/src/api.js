@@ -32,6 +32,17 @@ export default {
     return response.data
   },
 
+  async getDnsEvents({ limit = 500, since = null, source_ip = null, domain = null, event_type = null } = {}) {
+    const params = new URLSearchParams()
+    params.append('limit', String(limit))
+    if (since) params.append('since', since.toISOString())
+    if (source_ip) params.append('source_ip', source_ip)
+    if (domain) params.append('domain', domain)
+    if (event_type) params.append('event_type', event_type)
+    const response = await api.get(`/dns/events?${params.toString()}`)
+    return response.data
+  },
+
   // Traffic
   async getTrafficByDomain(domain, startTime = null, endTime = null) {
     let url = `/traffic/domain/${encodeURIComponent(domain)}`
