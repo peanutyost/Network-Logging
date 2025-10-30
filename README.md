@@ -1,5 +1,7 @@
 # Network Traffic DNS Logger
 
+> **⚠️ BETA WARNING:** This software is currently in beta phase. It may contain bugs, incomplete features, and breaking changes. Use at your own risk. We recommend testing in a non-production environment before deploying.
+
 A comprehensive network monitoring application that captures all network traffic, extracts DNS queries, logs them to a database, and provides a web-based UI with analytics and threat hunting tools.
 
 ## Features
