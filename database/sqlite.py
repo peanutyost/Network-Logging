@@ -51,14 +51,28 @@ class SQLiteDatabase(DatabaseBase):
                     query_type TEXT NOT NULL,
                     resolved_ips TEXT NOT NULL,
                     query_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(domain, query_type)
                 )
             """)
             
+            # Add first_seen column if it doesn't exist
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='dns_lookups'
+            """)
+            if cursor.fetchone():
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pragma_table_info('dns_lookups') WHERE name='first_seen'
+                """)
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute("ALTER TABLE dns_lookups ADD COLUMN first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+            
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dns_domain ON dns_lookups(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dns_timestamp ON dns_lookups(query_timestamp)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_dns_first_seen ON dns_lookups(first_seen)")
             
             # Traffic Flows table
             cursor.execute("""
@@ -104,6 +118,20 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_severity ON threat_indicators(severity)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_detected ON threat_indicators(detected_at)")
             
+            # WHOIS Data table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS whois_data (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain TEXT NOT NULL UNIQUE,
+                    whois_data TEXT NOT NULL,
+                    whois_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_whois_domain ON whois_data(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_whois_updated ON whois_data(whois_updated_at)")
+            
             self.conn.commit()
             logger.info("Database tables created successfully")
         except Exception as e:
@@ -116,22 +144,39 @@ class SQLiteDatabase(DatabaseBase):
         domain: str,
         query_type: str,
         resolved_ips: List[str],
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        first_seen: Optional[datetime] = None
     ) -> int:
         """Insert or update a DNS lookup entry."""
         if timestamp is None:
             timestamp = datetime.utcnow()
+        if first_seen is None:
+            first_seen = timestamp
         
         if not self.conn:
             self.connect()
         
         try:
             cursor = self.conn.cursor()
+            # Check if domain already exists to preserve first_seen
             cursor.execute("""
-                INSERT OR REPLACE INTO dns_lookups 
-                (domain, query_type, resolved_ips, query_timestamp, last_seen)
-                VALUES (?, ?, ?, ?, ?)
-            """, (domain, query_type, json.dumps(resolved_ips), timestamp, timestamp))
+                SELECT first_seen FROM dns_lookups
+                WHERE domain = ? AND query_type = ?
+            """, (domain, query_type))
+            
+            existing = cursor.fetchone()
+            if existing:
+                first_seen = existing[0]  # Preserve original first_seen
+            
+            cursor.execute("""
+                INSERT INTO dns_lookups 
+                (domain, query_type, resolved_ips, query_timestamp, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (domain, query_type)
+                DO UPDATE SET
+                    resolved_ips = excluded.resolved_ips,
+                    last_seen = excluded.last_seen
+            """, (domain, query_type, json.dumps(resolved_ips), timestamp, first_seen, timestamp))
             
             self.conn.commit()
             return cursor.lastrowid
@@ -430,4 +475,50 @@ class SQLiteDatabase(DatabaseBase):
                 "active_connections": 0,
                 "period_hours": hours
             }
+    
+    def save_whois_data(self, domain: str, whois_data: Dict[str, Any]) -> None:
+        """Save WHOIS data for a domain."""
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO whois_data (domain, whois_data, whois_updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (domain)
+                DO UPDATE SET
+                    whois_data = excluded.whois_data,
+                    whois_updated_at = CURRENT_TIMESTAMP
+            """, (domain, json.dumps(whois_data)))
+            
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error saving WHOIS data: {e}")
+            raise
+    
+    def get_whois_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Get WHOIS data for a domain."""
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM whois_data
+                WHERE domain = ?
+            """, (domain,))
+            
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'domain': row[1],
+                    'whois_data': json.loads(row[2]) if isinstance(row[2], str) else row[2],
+                    'whois_updated_at': row[3],
+                    'created_at': row[4]
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting WHOIS data: {e}")
+            return None
 

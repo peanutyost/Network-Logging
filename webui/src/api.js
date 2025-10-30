@@ -23,6 +23,15 @@ export default {
     return response.data
   },
 
+  async getDomainWhois(domain, forceRefresh = false) {
+    let url = `/dns/domain/${encodeURIComponent(domain)}/whois`
+    if (forceRefresh) {
+      url += '?force_refresh=true'
+    }
+    const response = await api.get(url)
+    return response.data
+  },
+
   // Traffic
   async getTrafficByDomain(domain, startTime = null, endTime = null) {
     let url = `/traffic/domain/${encodeURIComponent(domain)}`

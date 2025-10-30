@@ -67,16 +67,31 @@ class PostgreSQLDatabase(DatabaseBase):
                         query_type VARCHAR(10) NOT NULL,
                         resolved_ips JSONB NOT NULL,
                         query_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(domain, query_type)
                     )
                 """)
                 
+                # Add first_seen column if it doesn't exist (for existing databases)
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='dns_lookups' AND column_name='first_seen'
+                        ) THEN
+                            ALTER TABLE dns_lookups ADD COLUMN first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                    END $$;
+                """)
+                
                 # Create indexes
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_dns_domain ON dns_lookups(domain)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_dns_ips ON dns_lookups USING GIN(resolved_ips)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_dns_timestamp ON dns_lookups(query_timestamp)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_dns_first_seen ON dns_lookups(first_seen)")
                 
                 # Traffic Flows table
                 cur.execute("""
@@ -123,6 +138,20 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_severity ON threat_indicators(severity)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_detected ON threat_indicators(detected_at)")
                 
+                # WHOIS Data table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS whois_data (
+                        id SERIAL PRIMARY KEY,
+                        domain VARCHAR(255) NOT NULL UNIQUE,
+                        whois_data JSONB NOT NULL,
+                        whois_updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_whois_domain ON whois_data(domain)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_whois_updated ON whois_data(whois_updated_at)")
+                
                 conn.commit()
                 logger.info("Database tables created successfully")
         except Exception as e:
@@ -137,24 +166,37 @@ class PostgreSQLDatabase(DatabaseBase):
         domain: str,
         query_type: str,
         resolved_ips: List[str],
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        first_seen: Optional[datetime] = None
     ) -> int:
         """Insert or update a DNS lookup entry."""
         if timestamp is None:
             timestamp = datetime.utcnow()
+        if first_seen is None:
+            first_seen = timestamp
         
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
+                # Check if domain already exists to preserve first_seen
                 cur.execute("""
-                    INSERT INTO dns_lookups (domain, query_type, resolved_ips, query_timestamp, last_seen)
-                    VALUES (%s, %s, %s, %s, %s)
+                    SELECT first_seen FROM dns_lookups
+                    WHERE domain = %s AND query_type = %s
+                """, (domain, query_type))
+                
+                existing = cur.fetchone()
+                if existing:
+                    first_seen = existing[0]  # Preserve original first_seen
+                
+                cur.execute("""
+                    INSERT INTO dns_lookups (domain, query_type, resolved_ips, query_timestamp, first_seen, last_seen)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (domain, query_type)
                     DO UPDATE SET
                         resolved_ips = EXCLUDED.resolved_ips,
                         last_seen = EXCLUDED.last_seen
                     RETURNING id
-                """, (domain, query_type, json.dumps(resolved_ips), timestamp, timestamp))
+                """, (domain, query_type, json.dumps(resolved_ips), timestamp, first_seen, timestamp))
                 
                 result = cur.fetchone()
                 conn.commit()
@@ -458,6 +500,53 @@ class PostgreSQLDatabase(DatabaseBase):
                 "active_connections": 0,
                 "period_hours": hours
             }
+        finally:
+            self._return_connection(conn)
+    
+    def save_whois_data(self, domain: str, whois_data: Dict[str, Any]) -> None:
+        """Save WHOIS data for a domain."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO whois_data (domain, whois_data, whois_updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (domain)
+                    DO UPDATE SET
+                        whois_data = EXCLUDED.whois_data,
+                        whois_updated_at = CURRENT_TIMESTAMP
+                """, (domain, json.dumps(whois_data)))
+                
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error saving WHOIS data: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def get_whois_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Get WHOIS data for a domain."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM whois_data
+                    WHERE domain = %s
+                """, (domain,))
+                
+                result = cur.fetchone()
+                if result:
+                    return {
+                        'domain': result['domain'],
+                        'whois_data': result['whois_data'],
+                        'whois_updated_at': result['whois_updated_at'],
+                        'created_at': result['created_at']
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting WHOIS data: {e}")
+            return None
         finally:
             self._return_connection(conn)
 

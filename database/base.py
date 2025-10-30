@@ -29,7 +29,8 @@ class DatabaseBase(ABC):
         domain: str,
         query_type: str,
         resolved_ips: List[str],
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        first_seen: Optional[datetime] = None
     ) -> int:
         """Insert or update a DNS lookup entry."""
         pass
@@ -101,5 +102,16 @@ class DatabaseBase(ABC):
         hours: int = 24
     ) -> Dict[str, Any]:
         """Get dashboard statistics for the last N hours."""
+        pass
+    
+    # WHOIS operations
+    @abstractmethod
+    def save_whois_data(self, domain: str, whois_data: Dict[str, Any]) -> None:
+        """Save WHOIS data for a domain."""
+        pass
+    
+    @abstractmethod
+    def get_whois_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
+        """Get WHOIS data for a domain."""
         pass
 

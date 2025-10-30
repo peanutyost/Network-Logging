@@ -11,10 +11,19 @@ class DNSLookupResponse(BaseModel):
     query_type: str
     resolved_ips: List[str]
     query_timestamp: datetime
+    first_seen: datetime
     last_seen: datetime
 
     class Config:
         from_attributes = True
+
+
+class WhoisResponse(BaseModel):
+    """WHOIS data response model."""
+    domain: str
+    whois_data: Dict[str, Any]
+    whois_updated_at: datetime
+    created_at: datetime
 
 
 class TrafficFlowResponse(BaseModel):

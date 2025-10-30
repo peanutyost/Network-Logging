@@ -30,11 +30,43 @@
         </div>
         <div class="info-item">
           <label>First Seen:</label>
-          <span>{{ formatDate(domainInfo.query_timestamp) }}</span>
+          <span>{{ formatDate(domainInfo.first_seen || domainInfo.query_timestamp) }}</span>
         </div>
         <div class="info-item">
           <label>Last Seen:</label>
           <span>{{ formatDate(domainInfo.last_seen) }}</span>
+        </div>
+      </div>
+
+      <div class="whois-section" v-if="domainInfo">
+        <h3>WHOIS Information</h3>
+        <div class="whois-controls">
+          <button @click="loadWhoisData(false)" class="refresh-whois-btn" :disabled="whoisLoading">
+            {{ whoisData ? 'Refresh' : 'Load WHOIS Data' }}
+          </button>
+          <button @click="loadWhoisData(true)" class="force-refresh-btn" :disabled="whoisLoading">
+            Force Refresh
+          </button>
+        </div>
+        <div v-if="whoisLoading" class="loading">Loading WHOIS data...</div>
+        <div v-else-if="whoisError" class="error">{{ whoisError }}</div>
+        <div v-else-if="whoisData" class="whois-data">
+          <div class="whois-meta">
+            <span><strong>Last Updated:</strong> {{ formatDate(whoisData.whois_updated_at) }}</span>
+            <span><strong>First Retrieved:</strong> {{ formatDate(whoisData.created_at) }}</span>
+          </div>
+          <div class="whois-fields">
+            <div v-for="(value, key) in whoisData.whois_data" :key="key" class="whois-field">
+              <label>{{ formatWhoisField(key) }}:</label>
+              <span v-if="Array.isArray(value)" class="whois-value-array">
+                <span v-for="(item, idx) in value" :key="idx">{{ item }}<span v-if="idx < value.length - 1">, </span></span>
+              </span>
+              <span v-else class="whois-value">{{ value }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="no-whois">
+          No WHOIS data available. Click "Load WHOIS Data" to fetch it.
         </div>
       </div>
 
@@ -91,7 +123,21 @@ export default {
       searchQuery: '',
       searchResults: [],
       domainInfo: null,
-      loading: false
+      loading: false,
+      whoisData: null,
+      whoisLoading: false,
+      whoisError: null
+    }
+  },
+  watch: {
+    domainInfo(newDomain) {
+      if (newDomain) {
+        // Auto-load WHOIS data when domain changes
+        this.loadWhoisData(false)
+      } else {
+        this.whoisData = null
+        this.whoisError = null
+      }
     }
   },
   methods: {
@@ -127,6 +173,32 @@ export default {
       } catch {
         return dateString
       }
+    },
+    async loadWhoisData(forceRefresh = false) {
+      if (!this.domainInfo) return
+      
+      this.whoisLoading = true
+      this.whoisError = null
+      
+      try {
+        this.whoisData = await api.getDomainWhois(this.domainInfo.domain, forceRefresh)
+      } catch (error) {
+        if (error.response && error.response.status === 404) {
+          this.whoisError = 'WHOIS data not available for this domain'
+        } else {
+          this.whoisError = `Error loading WHOIS data: ${error.message}`
+        }
+        this.whoisData = null
+      } finally {
+        this.whoisLoading = false
+      }
+    },
+    formatWhoisField(fieldName) {
+      // Convert snake_case to Title Case
+      return fieldName
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
     }
   }
 }
@@ -176,7 +248,7 @@ export default {
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem fine;
+  gap: 1.5rem;
   margin: 1.5rem 0;
 }
 
@@ -196,6 +268,112 @@ export default {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+
+.whois-section {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #eee;
+}
+
+.whois-controls {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.refresh-whois-btn,
+.force-refresh-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.3s;
+}
+
+.refresh-whois-btn {
+  background-color: #3498db;
+  color: white;
+}
+
+.refresh-whois-btn:hover:not(:disabled) {
+  background-color: #2980b9;
+}
+
+.force-refresh-btn {
+  background-color: #e67e22;
+  color: white;
+}
+
+.force-refresh-btn:hover:not(:disabled) {
+  background-color: #d35400;
+}
+
+.refresh-whois-btn:disabled,
+.force-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.whois-meta {
+  display: flex;
+  gap: 2rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.whois-data {
+  margin-top: 1rem;
+}
+
+.whois-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.whois-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.whois-field label {
+  font-weight: 600;
+  color: #555;
+  font-size: 0.85rem;
+}
+
+.whois-value {
+  color: #333;
+  word-break: break-word;
+}
+
+.whois-value-array {
+  color: #333;
+}
+
+.no-whois,
+.error {
+  padding: 1rem;
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  margin-top: 1rem;
+}
+
+.error {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
 }
 
 .traffic-section {

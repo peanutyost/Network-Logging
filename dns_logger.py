@@ -16,6 +16,7 @@ class DNSLogger:
         self.db = get_database()
         self.db.connect()
         self.db.create_tables()
+        self.whois_service = WhoisService()
     
     def log_dns(self, dns_data: Dict[str, Any]):
         """Log DNS query or response to database.
@@ -56,8 +57,23 @@ class DNSLogger:
                     return
                 
                 timestamp = datetime.fromtimestamp(dns_data.get('timestamp', datetime.utcnow().timestamp()))
-                self.db.insert_dns_lookup(domain, query_type, resolved_ips, timestamp)
+                
+                # Check if this is a new domain (first time seeing it)
+                existing = self.db.get_dns_lookup_by_domain(domain)
+                is_new_domain = existing is None
+                first_seen = timestamp if is_new_domain else None
+                
+                self.db.insert_dns_lookup(domain, query_type, resolved_ips, timestamp, first_seen)
                 logger.debug(f"Logged DNS response: {domain} -> {resolved_ips}")
+                
+                # Trigger WHOIS lookup for new domains or if cache is old
+                if is_new_domain:
+                    # Async WHOIS lookup for new domains (don't block packet processing)
+                    try:
+                        import threading
+                        threading.Thread(target=self.whois_service.get_whois, args=(domain,), daemon=True).start()
+                    except Exception as e:
+                        logger.debug(f"Error triggering WHOIS lookup for {domain}: {e}")
         
         except Exception as e:
             logger.error(f"Error logging DNS data: {e}")

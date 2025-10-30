@@ -3,11 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List
 from datetime import datetime
 
-from api.models import DNSLookupResponse, DomainSearchRequest
+from api.models import DNSLookupResponse, DomainSearchRequest, WhoisResponse
 from api.dependencies import get_db
 from database.base import DatabaseBase
+from whois_service import WhoisService
 
 router = APIRouter(prefix="/api/dns", tags=["DNS"])
+whois_service = WhoisService()
 
 
 @router.get("/search", response_model=List[DNSLookupResponse])
@@ -34,4 +36,21 @@ async def get_domain_info(
     if not result:
         raise HTTPException(status_code=404, detail="Domain not found")
     return result
+
+
+@router.get("/domain/{domain}/whois", response_model=WhoisResponse)
+async def get_domain_whois(
+    domain: str,
+    force_refresh: bool = False,
+    db: DatabaseBase = Depends(get_db)
+):
+    """Get WHOIS information for a domain."""
+    whois_data = whois_service.get_whois(domain, force_refresh=force_refresh)
+    if not whois_data:
+        raise HTTPException(status_code=404, detail="WHOIS data not available for this domain")
+    
+    cached = db.get_whois_by_domain(domain)
+    if cached:
+        return cached
+    raise HTTPException(status_code=404, detail="WHOIS data not found")
 
