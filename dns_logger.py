@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Any
 from database import get_database
 from config import config
+from whois_service import WhoisService
 
 logger = logging.getLogger(__name__)
 
