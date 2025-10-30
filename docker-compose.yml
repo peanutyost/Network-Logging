@@ -35,6 +35,7 @@ services:
       - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ORPHANED_IP_DAYS=${ORPHANED_IP_DAYS:-7}
+    user: "0:0"  # run as root for packet capture
     network_mode: host  # Required for packet capture
     cap_add:
       - NET_ADMIN
