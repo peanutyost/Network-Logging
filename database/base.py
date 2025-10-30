@@ -49,6 +49,15 @@ class DatabaseBase(ABC):
     def search_domains(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for domains matching a query string."""
         pass
+
+    @abstractmethod
+    def get_recent_dns_queries(
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Get recent DNS queries ordered by last_seen desc."""
+        pass
     
     # Traffic Flow operations
     @abstractmethod

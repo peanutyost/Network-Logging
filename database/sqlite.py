@@ -183,6 +183,37 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error inserting DNS lookup: {e}")
             raise
+
+    def get_recent_dns_queries(self, limit: int = 100, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Get recent DNS queries ordered by last_seen desc."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            if since:
+                cursor.execute(
+                    """
+                    SELECT * FROM dns_lookups
+                    WHERE last_seen >= ?
+                    ORDER BY last_seen DESC
+                    LIMIT ?
+                    """,
+                    (since, limit),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT * FROM dns_lookups
+                    ORDER BY last_seen DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting recent DNS queries: {e}")
+            return []
     
     def get_dns_lookup_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
         """Get DNS lookup information by domain."""
@@ -191,12 +222,15 @@ class SQLiteDatabase(DatabaseBase):
         
         try:
             cursor = self.conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM dns_lookups
                 WHERE domain = ?
                 ORDER BY last_seen DESC
                 LIMIT 1
-            """, (domain,))
+            """,
+                (domain,),
+            )
             
             row = cursor.fetchone()
             return dict(row) if row else None

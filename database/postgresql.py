@@ -207,18 +207,53 @@ class PostgreSQLDatabase(DatabaseBase):
             raise
         finally:
             self._return_connection(conn)
-    
+
+    def get_recent_dns_queries(self, limit: int = 100, since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Get recent DNS queries ordered by last_seen desc."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if since:
+                    cur.execute(
+                        """
+                        SELECT * FROM dns_lookups
+                        WHERE last_seen >= %s
+                        ORDER BY last_seen DESC
+                        LIMIT %s
+                        """,
+                        (since, limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT * FROM dns_lookups
+                        ORDER BY last_seen DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting recent DNS queries: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+
     def get_dns_lookup_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
         """Get DNS lookup information by domain."""
         conn = self._get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT * FROM dns_lookups
                     WHERE domain = %s
                     ORDER BY last_seen DESC
                     LIMIT 1
-                """, (domain,))
+                    """,
+                    (domain,),
+                )
                 
                 result = cur.fetchone()
                 return dict(result) if result else None

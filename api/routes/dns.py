@@ -1,6 +1,6 @@
 """DNS-related API routes."""
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from api.models import DNSLookupResponse, DomainSearchRequest, WhoisResponse
@@ -24,6 +24,18 @@ async def search_domains(
     
     results = db.search_domains(query, limit=limit)
     return results
+
+
+@router.get("/recent", response_model=List[DNSLookupResponse])
+async def get_recent_dns(
+    limit: int = 100,
+    since: Optional[datetime] = None,
+    db: DatabaseBase = Depends(get_db)
+):
+    """Get recent DNS queries in descending order of last_seen."""
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    return db.get_recent_dns_queries(limit=limit, since=since)
 
 
 @router.get("/domain/{domain}", response_model=DNSLookupResponse)

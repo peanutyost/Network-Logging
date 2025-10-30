@@ -6,6 +6,7 @@
         <ul class="nav-links">
           <li><router-link to="/">Dashboard</router-link></li>
           <li><router-link to="/domains">Domain Search</router-link></li>
+          <li><router-link to="/dns-queries">DNS Queries</router-link></li>
           <li><router-link to="/traffic">Traffic Analytics</router-link></li>
           <li><router-link to="/threats">Threat Hunting</router-link></li>
         </ul>
