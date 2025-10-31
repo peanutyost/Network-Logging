@@ -47,7 +47,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 import DomainDetail from '../components/DomainDetail.vue'
 
 export default {
@@ -82,13 +82,8 @@ export default {
         this.loading = false
       }
     },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm:ss')
-      } catch {
-        return dateString
-      }
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm:ss') {
+      return formatDateInTimezone(dateString, formatString)
     },
     selectDomain(domain) {
       this.selectedDomain = domain

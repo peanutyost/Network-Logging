@@ -94,7 +94,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 import TrafficChart from './TrafficChart.vue'
 import TrafficTable from './TrafficTable.vue'
 
@@ -181,13 +181,8 @@ export default {
         this.whoisLoading = false
       }
     },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
-      } catch {
-        return dateString
-      }
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
+      return formatDateInTimezone(dateString, formatString)
     },
     formatWhoisField(fieldName) {
       // Convert snake_case to Title Case

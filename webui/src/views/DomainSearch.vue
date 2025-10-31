@@ -132,7 +132,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 import TrafficChart from '../components/TrafficChart.vue'
 import TrafficTable from '../components/TrafficTable.vue'
 
@@ -197,13 +197,8 @@ export default {
       this.domainInfo = null
       this.search()
     },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
-      } catch {
-        return dateString
-      }
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
+      return formatDateInTimezone(dateString, formatString)
     },
     async loadWhoisData(forceRefresh = false) {
       if (!this.domainInfo) return

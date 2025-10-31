@@ -58,7 +58,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'Dashboard',
@@ -111,13 +111,8 @@ export default {
       const i = Math.floor(Math.log(bytes) / Math.log(k))
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
     },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
-      } catch {
-        return dateString
-      }
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
+      return formatDateInTimezone(dateString, formatString)
     }
   }
 }

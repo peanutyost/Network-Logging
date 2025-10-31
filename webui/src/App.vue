@@ -11,6 +11,7 @@
           <li><router-link to="/traffic">Traffic Analytics</router-link></li>
           <li><router-link to="/threats">Threat Hunting</router-link></li>
         </ul>
+        <TimezoneSelector />
       </div>
     </nav>
     <main class="main-content">
@@ -20,8 +21,13 @@
 </template>
 
 <script>
+import TimezoneSelector from './components/TimezoneSelector.vue'
+
 export default {
-  name: 'App'
+  name: 'App',
+  components: {
+    TimezoneSelector
+  }
 }
 </script>
 

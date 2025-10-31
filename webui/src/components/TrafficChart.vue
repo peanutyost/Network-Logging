@@ -22,7 +22,7 @@ import {
   Legend
 } from 'chart.js'
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 
 ChartJS.register(
   CategoryScale,
@@ -101,7 +101,7 @@ export default {
         const data = await api.getTrafficVolume(this.domain, this.startTime, this.endTime)
         
         if (data && data.length > 0) {
-          const labels = data.map(d => format(parseISO(d.timestamp), 'MMM dd HH:mm'))
+          const labels = data.map(d => formatDateInTimezone(d.timestamp, 'MMM dd HH:mm'))
           this.chartData = {
             labels,
             datasets: [

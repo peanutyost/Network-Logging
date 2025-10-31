@@ -64,7 +64,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 import DomainDetail from '../components/DomainDetail.vue'
 
 export default {
@@ -108,9 +108,8 @@ export default {
     refresh() {
       this.loadData()
     },
-    formatDate(s) {
-      if (!s) return 'N/A'
-      try { return format(parseISO(s), 'MMM dd, yyyy HH:mm:ss') } catch { return s }
+    formatDate(s, formatString = 'MMM dd, yyyy HH:mm:ss') {
+      return formatDateInTimezone(s, formatString)
     },
     formatIps(v) {
       if (!v) return ''

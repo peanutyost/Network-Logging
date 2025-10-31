@@ -61,7 +61,7 @@
 
 <script>
 import api from '../api.js'
-import { format, parseISO } from 'date-fns'
+import { formatDateInTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'ThreatHunting',
@@ -120,13 +120,8 @@ export default {
     formatNumber(num) {
       return new Intl.NumberFormat().format(num || 0)
     },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
-      } catch {
-        return dateString
-      }
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
+      return formatDateInTimezone(dateString, formatString)
     }
   }
 }

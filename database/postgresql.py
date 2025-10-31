@@ -31,9 +31,18 @@ class PostgreSQLDatabase(DatabaseBase):
                 port=self.db_config.port,
                 database=self.db_config.name,
                 user=self.db_config.user,
-                password=self.db_config.password
+                password=self.db_config.password,
+                options='-c timezone=UTC'
             )
-            logger.info("Connected to PostgreSQL database")
+            # Set timezone to UTC for all connections
+            conn = self.connection_pool.getconn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SET timezone = 'UTC'")
+                    conn.commit()
+            finally:
+                self.connection_pool.putconn(conn)
+            logger.info("Connected to PostgreSQL database (UTC timezone)")
         except Exception as e:
             logger.error(f"Error connecting to database: {e}")
             raise
@@ -48,7 +57,15 @@ class PostgreSQLDatabase(DatabaseBase):
         """Get connection from pool."""
         if not self.connection_pool:
             self.connect()
-        return self.connection_pool.getconn()
+        conn = self.connection_pool.getconn()
+        # Ensure timezone is UTC for this connection
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET timezone = 'UTC'")
+                conn.commit()
+        except:
+            pass  # If it fails, connection might already be set
+        return conn
     
     def _return_connection(self, conn):
         """Return connection to pool."""
