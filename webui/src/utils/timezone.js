@@ -1,6 +1,6 @@
 // Timezone utility for handling UTC dates and timezone conversions
+// Using native JavaScript Intl API instead of date-fns-tz to avoid dependency issues
 import { format, parseISO } from 'date-fns'
-import { utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz'
 
 const TIMEZONE_STORAGE_KEY = 'network_logger_timezone'
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -55,12 +55,46 @@ export function formatDateInTimezone(dateString, formatString = 'MMM dd, yyyy HH
       return String(dateString)
     }
     
-    // Convert UTC date to the selected timezone
-    const zonedDate = utcToZonedTime(date, tz)
+    // Use Intl.DateTimeFormat to get date components in the target timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    })
+    
+    const parts = formatter.formatToParts(date)
+    const year = parseInt(parts.find(p => p.type === 'year').value)
+    const monthAbbr = parts.find(p => p.type === 'month').value
+    const day = parseInt(parts.find(p => p.type === 'day').value)
+    const hour = parseInt(parts.find(p => p.type === 'hour').value)
+    const minute = parseInt(parts.find(p => p.type === 'minute').value)
+    const second = parseInt(parts.find(p => p.type === 'second').value)
+    
+    // Map month abbreviations to numbers (0-11)
+    const monthMap = {
+      'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+      'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+    }
+    const month = monthMap[monthAbbr] || 0
+    
+    // Create a date in local timezone with these components
+    // This date represents the timezone-aware time but in local timezone
+    const zonedDate = new Date(year, month, day, hour, minute, second)
     return format(zonedDate, formatString)
   } catch (error) {
     console.error('Error formatting date:', error, dateString)
-    return String(dateString)
+    // Fallback: try to format directly
+    try {
+      const date = typeof dateString === 'string' ? parseISO(dateString) : dateString
+      return format(date, formatString)
+    } catch (e) {
+      return String(dateString)
+    }
   }
 }
 
@@ -113,4 +147,3 @@ export function getAllTimezones() {
   }
   return getCommonTimezones()
 }
-
