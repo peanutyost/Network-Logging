@@ -11,13 +11,13 @@
           <li><router-link to="/traffic">Traffic Analytics</router-link></li>
           <li><router-link to="/threats">Threat Hunting</router-link></li>
           <li v-if="isAdmin"><router-link to="/users">User Management</router-link></li>
+          <li><router-link to="/settings">Settings</router-link></li>
         </ul>
         <div class="nav-right">
           <div v-if="currentUser" class="user-info">
             <span class="username">{{ currentUser.username }}</span>
             <span v-if="currentUser.is_admin" class="admin-badge">Admin</span>
           </div>
-          <TimezoneSelector />
           <button @click="handleLogout" class="logout-button">Logout</button>
         </div>
       </div>
@@ -29,14 +29,10 @@
 </template>
 
 <script>
-import TimezoneSelector from './components/TimezoneSelector.vue'
 import api from './api.js'
 
 export default {
   name: 'App',
-  components: {
-    TimezoneSelector
-  },
   data() {
     return {
       currentUser: null,

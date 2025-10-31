@@ -174,6 +174,12 @@ export default {
 
   async deleteUser(userId) {
     await api.delete(`/users/${userId}`)
+  },
+
+  // User Settings
+  async changePassword(passwordData) {
+    const response = await api.post('/auth/change-password', passwordData)
+    return response.data
   }
 }
 

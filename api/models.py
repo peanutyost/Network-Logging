@@ -145,6 +145,12 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+class PasswordChange(BaseModel):
+    """Password change request model."""
+    current_password: str
+    new_password: str = Field(..., min_length=6)
+
+
 class UserResponse(BaseModel):
     """User response model."""
     id: int

@@ -9,6 +9,7 @@ import DnsQueries from './views/DnsQueries.vue'
 import DnsEvents from './views/DnsEvents.vue'
 import Login from './views/Login.vue'
 import UserManagement from './views/UserManagement.vue'
+import Settings from './views/Settings.vue'
 import api from './api.js'
 
 const routes = [
@@ -47,6 +48,11 @@ const routes = [
     path: '/users', 
     component: UserManagement, 
     meta: { requiresAuth: true, requiresAdmin: true } 
+  },
+  { 
+    path: '/settings', 
+    component: Settings, 
+    meta: { requiresAuth: true } 
   }
 ]
 

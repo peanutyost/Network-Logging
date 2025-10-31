@@ -10,7 +10,7 @@ from api.auth import (
     require_admin,
     ACCESS_TOKEN_EXPIRE_MINUTES
 )
-from api.models import Token, UserLogin, UserCreate, UserResponse
+from api.models import Token, UserLogin, UserCreate, UserResponse, PasswordChange
 from api.dependencies import get_db
 from database.base import DatabaseBase
 
@@ -126,4 +126,44 @@ async def get_current_user_info(current_user: dict = Depends(get_current_active_
     # Remove password from response
     user_data = {k: v for k, v in current_user.items() if k != "hashed_password"}
     return UserResponse(**user_data)
+
+
+@router.post("/change-password", response_model=UserResponse)
+async def change_password(
+    password_data: PasswordChange,
+    current_user: dict = Depends(get_current_active_user),
+    db: DatabaseBase = Depends(get_db)
+):
+    """Change current user's password."""
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Hash new password
+    new_hashed_password = get_password_hash(password_data.new_password)
+    
+    # Update password
+    success = db.update_user(
+        current_user["id"],
+        hashed_password=new_hashed_password
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password"
+        )
+    
+    # Get updated user
+    updated_user = db.get_user_by_id(current_user["id"])
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve updated user"
+        )
+    
+    return UserResponse(**{k: v for k, v in updated_user.items() if k != "hashed_password"})
 
