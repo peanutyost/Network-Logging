@@ -177,6 +177,7 @@ class PacketCapture:
         else:
             # If no ports specified, capture all traffic (DNS will be captured too)
             # Don't add any port filters - let it capture everything
+            pass
         
         # Add custom BPF filter if specified (this overrides port filters)
         if self.capture_config.bpf_filter:
