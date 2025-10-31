@@ -1,21 +1,10 @@
 <template>
-  <div class="domain-search">
-    <h1>Domain Search</h1>
+  <div class="domain-detail">
+    <div v-if="loading" class="loading">Loading domain information...</div>
     
-    <div class="search-box">
-      <input
-        v-model="searchQuery"
-        @keyup.enter="search"
-        type="text"
-        placeholder="Enter domain name..."
-        class="search-input"
-      />
-      <button @click="search" class="search-button">Search</button>
-    </div>
-
-    <div v-if="loading" class="loading">Loading...</div>
-
-    <div v-if="domainInfo" class="domain-info">
+    <div v-else-if="error" class="error">{{ error }}</div>
+    
+    <div v-else-if="domainInfo" class="domain-info">
       <h2>{{ domainInfo.domain }}</h2>
       <div class="info-grid">
         <div class="info-item">
@@ -100,54 +89,32 @@
         />
       </div>
     </div>
-
-    <div v-if="searchResults && searchResults.length > 0 && !domainInfo" class="search-results">
-      <h2>Search Results</h2>
-      <table class="results-table">
-        <thead>
-          <tr>
-            <th>Domain</th>
-            <th>Query Type</th>
-            <th>IPs</th>
-            <th>Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="result in searchResults"
-            :key="result.id"
-            @click="selectDomain(result.domain)"
-            class="clickable-row"
-          >
-            <td>{{ result.domain }}</td>
-            <td>{{ result.query_type }}</td>
-            <td>{{ result.resolved_ips.join(', ') || 'N/A' }}</td>
-            <td>{{ formatDate(result.last_seen) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 </template>
 
 <script>
 import api from '../api.js'
 import { format, parseISO } from 'date-fns'
-import TrafficChart from '../components/TrafficChart.vue'
-import TrafficTable from '../components/TrafficTable.vue'
+import TrafficChart from './TrafficChart.vue'
+import TrafficTable from './TrafficTable.vue'
 
 export default {
-  name: 'DomainSearch',
+  name: 'DomainDetail',
   components: {
     TrafficChart,
     TrafficTable
   },
+  props: {
+    domain: {
+      type: String,
+      required: true
+    }
+  },
   data() {
     return {
-      searchQuery: '',
-      searchResults: [],
       domainInfo: null,
       loading: false,
+      error: null,
       whoisData: null,
       whoisLoading: false,
       whoisError: null,
@@ -157,14 +124,18 @@ export default {
     }
   },
   mounted() {
+    this.loadDomainInfo()
     this.updateTimeRange()
   },
   watch: {
+    domain() {
+      this.loadDomainInfo()
+      this.updateTimeRange()
+    },
     domainInfo(newDomain) {
       if (newDomain) {
         // Auto-load WHOIS data when domain changes
         this.loadWhoisData(false)
-        this.updateTimeRange()
       } else {
         this.whoisData = null
         this.whoisError = null
@@ -172,37 +143,23 @@ export default {
     }
   },
   methods: {
-    async search() {
-      if (!this.searchQuery.trim()) return
+    async loadDomainInfo() {
+      if (!this.domain) return
       
       this.loading = true
-      this.domainInfo = null
+      this.error = null
       
       try {
-        // First try to get exact domain info
-        try {
-          this.domainInfo = await api.getDomainInfo(this.searchQuery)
-        } catch {
-          // If not found, search
-          this.searchResults = await api.searchDomains(this.searchQuery)
-        }
+        this.domainInfo = await api.getDomainInfo(this.domain)
       } catch (error) {
-        console.error('Error searching domains:', error)
+        if (error.response && error.response.status === 404) {
+          this.error = `Domain "${this.domain}" not found in database`
+        } else {
+          this.error = `Error loading domain information: ${error.message}`
+        }
+        this.domainInfo = null
       } finally {
         this.loading = false
-      }
-    },
-    async selectDomain(domain) {
-      this.searchQuery = domain
-      this.domainInfo = null
-      this.search()
-    },
-    formatDate(dateString) {
-      if (!dateString) return 'N/A'
-      try {
-        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
-      } catch {
-        return dateString
       }
     },
     async loadWhoisData(forceRefresh = false) {
@@ -222,6 +179,14 @@ export default {
         this.whoisData = null
       } finally {
         this.whoisLoading = false
+      }
+    },
+    formatDate(dateString) {
+      if (!dateString) return 'N/A'
+      try {
+        return format(parseISO(dateString), 'MMM dd, yyyy HH:mm')
+      } catch {
+        return dateString
       }
     },
     formatWhoisField(fieldName) {
@@ -247,36 +212,8 @@ export default {
 </script>
 
 <style scoped>
-.domain-search {
+.domain-detail {
   padding: 2rem 0;
-}
-
-.search-box {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.search-input {
-  flex: 1;
-  padding: 0.75rem;
-  font-size: 1rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-
-.search-button {
-  padding: 0.75rem 2rem;
-  background-color: #2c3e50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-}
-
-.search-button:hover {
-  background-color: #34495e;
 }
 
 .domain-info {
@@ -452,39 +389,6 @@ export default {
   font-size: 0.85rem;
   color: #666;
   font-style: italic;
-}
-
-.search-results {
-  background: white;
-  padding: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
-.results-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1rem;
-}
-
-.results-table th,
-.results-table td {
-  padding: 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid #eee;
-}
-
-.results-table th {
-  background-color: #f8f9fa;
-  font-weight: 600;
-}
-
-.clickable-row {
-  cursor: pointer;
-}
-
-.clickable-row:hover {
-  background-color: #f8f9fa;
 }
 
 .loading {

@@ -43,6 +43,14 @@ export default {
     domain: {
       type: String,
       required: true
+    },
+    startTime: {
+      type: Date,
+      default: null
+    },
+    endTime: {
+      type: Date,
+      default: null
     }
   },
   data() {
@@ -79,12 +87,18 @@ export default {
   watch: {
     domain() {
       this.loadData()
+    },
+    startTime() {
+      this.loadData()
+    },
+    endTime() {
+      this.loadData()
     }
   },
   methods: {
     async loadData() {
       try {
-        const data = await api.getTrafficVolume(this.domain)
+        const data = await api.getTrafficVolume(this.domain, this.startTime, this.endTime)
         
         if (data && data.length > 0) {
           const labels = data.map(d => format(parseISO(d.timestamp), 'MMM dd HH:mm'))

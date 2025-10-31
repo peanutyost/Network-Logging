@@ -37,6 +37,14 @@ export default {
     domain: {
       type: String,
       required: true
+    },
+    startTime: {
+      type: Date,
+      default: null
+    },
+    endTime: {
+      type: Date,
+      default: null
     }
   },
   data() {
@@ -50,12 +58,18 @@ export default {
   watch: {
     domain() {
       this.loadData()
+    },
+    startTime() {
+      this.loadData()
+    },
+    endTime() {
+      this.loadData()
     }
   },
   methods: {
     async loadData() {
       try {
-        this.flows = await api.getTrafficByDomain(this.domain)
+        this.flows = await api.getTrafficByDomain(this.domain, this.startTime, this.endTime)
       } catch (error) {
         console.error('Error loading traffic table data:', error)
         this.flows = []

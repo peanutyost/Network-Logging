@@ -12,6 +12,11 @@
 
     <div v-if="loading" class="loading">Loading...</div>
 
+    <div v-if="selectedDomain" class="domain-detail-view">
+      <button @click="selectedDomain = null" class="back-button">← Back to List</button>
+      <DomainDetail :domain="selectedDomain" />
+    </div>
+
     <table v-else class="queries-table">
       <thead>
         <tr>
@@ -23,7 +28,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="row.id">
+        <tr 
+          v-for="row in rows" 
+          :key="row.id"
+          @click="selectDomain(row.domain)"
+          class="clickable-row"
+        >
           <td>{{ row.domain }}</td>
           <td>{{ row.query_type }}</td>
           <td>{{ (row.resolved_ips || []).join(', ') }}</td>
@@ -38,15 +48,20 @@
 <script>
 import api from '../api.js'
 import { format, parseISO } from 'date-fns'
+import DomainDetail from '../components/DomainDetail.vue'
 
 export default {
   name: 'DnsQueries',
+  components: {
+    DomainDetail
+  },
   data() {
     return {
       rows: [],
       loading: false,
       limit: 200,
-      interval: null
+      interval: null,
+      selectedDomain: null
     }
   },
   mounted() {
@@ -74,6 +89,9 @@ export default {
       } catch {
         return dateString
       }
+    },
+    selectDomain(domain) {
+      this.selectedDomain = domain
     }
   }
 }
@@ -100,6 +118,28 @@ export default {
 }
 .queries-table th {
   background-color: #f8f9fa;
+}
+.clickable-row {
+  cursor: pointer;
+}
+.clickable-row:hover {
+  background-color: #f8f9fa;
+}
+.domain-detail-view {
+  margin-top: 2rem;
+}
+.back-button {
+  padding: 0.5rem 1rem;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.back-button:hover {
+  background-color: #5a6268;
 }
 .loading { padding: 1rem; color: #666; }
 </style>

@@ -23,6 +23,11 @@
 
     <div v-if="loading" class="loading">Loading...</div>
 
+    <div v-if="selectedDomain" class="domain-detail-view">
+      <button @click="selectedDomain = null" class="back-button">← Back to Events</button>
+      <DomainDetail :domain="selectedDomain" />
+    </div>
+
     <table v-else class="events-table">
       <thead>
         <tr>
@@ -39,7 +44,14 @@
         <tr v-for="e in events" :key="e.id">
           <td>{{ formatDate(e.event_timestamp) }}</td>
           <td>{{ e.event_type }}</td>
-          <td>{{ e.domain }}</td>
+          <td 
+            v-if="e.domain"
+            @click.stop="selectDomain(e.domain)"
+            class="clickable-domain"
+          >
+            {{ e.domain }}
+          </td>
+          <td v-else>{{ e.domain }}</td>
           <td>{{ e.query_type }}</td>
           <td>{{ e.source_ip }}</td>
           <td>{{ e.destination_ip }}</td>
@@ -53,9 +65,13 @@
 <script>
 import api from '../api.js'
 import { format, parseISO } from 'date-fns'
+import DomainDetail from '../components/DomainDetail.vue'
 
 export default {
   name: 'DnsEvents',
+  components: {
+    DomainDetail
+  },
   data() {
     return {
       events: [],
@@ -65,7 +81,8 @@ export default {
         domain: '',
         source_ip: '',
         event_type: ''
-      }
+      },
+      selectedDomain: null
     }
   },
   mounted() {
@@ -99,6 +116,11 @@ export default {
       if (!v) return ''
       if (Array.isArray(v)) return v.join(', ')
       try { const j = typeof v === 'string' ? JSON.parse(v) : v; return Array.isArray(j) ? j.join(', ') : String(j) } catch { return String(v) }
+    },
+    selectDomain(domain) {
+      if (domain) {
+        this.selectedDomain = domain
+      }
     }
   }
 }
@@ -110,5 +132,29 @@ export default {
 .events-table { width: 100%; border-collapse: collapse; }
 .events-table th, .events-table td { padding: 0.75rem; border-bottom: 1px solid #eee; text-align: left; }
 .events-table th { background-color: #f8f9fa; }
+.clickable-domain {
+  cursor: pointer;
+  color: #3498db;
+  text-decoration: underline;
+}
+.clickable-domain:hover {
+  color: #2980b9;
+}
+.domain-detail-view {
+  margin-top: 2rem;
+}
+.back-button {
+  padding: 0.5rem 1rem;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.back-button:hover {
+  background-color: #5a6268;
+}
 .loading { padding: 1rem; color: #666; }
 </style>
