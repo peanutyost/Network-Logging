@@ -14,7 +14,7 @@ from api.models import Token, UserLogin, UserCreate, UserResponse
 from api.dependencies import get_db
 from database.base import DatabaseBase
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
 
 @router.post("/login", response_model=Token)

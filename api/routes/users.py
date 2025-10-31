@@ -6,7 +6,7 @@ from api.auth import get_current_active_user, require_admin, get_password_hash
 from api.dependencies import get_db
 from database.base import DatabaseBase
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("", response_model=List[UserResponse])
