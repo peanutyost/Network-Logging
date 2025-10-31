@@ -132,7 +132,7 @@
 
 <script>
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 import TrafficChart from '../components/TrafficChart.vue'
 import TrafficTable from '../components/TrafficTable.vue'
 
@@ -153,11 +153,16 @@ export default {
       whoisError: null,
       timeRangeHours: 24,
       timeRangeStart: null,
-      timeRangeEnd: null
+      timeRangeEnd: null,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.updateTimeRange()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   watch: {
     domainInfo(newDomain) {
@@ -172,6 +177,10 @@ export default {
     }
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async search() {
       if (!this.searchQuery.trim()) return
       
@@ -198,7 +207,7 @@ export default {
       this.search()
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
-      return formatDateInTimezone(dateString, formatString)
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     },
     async loadWhoisData(forceRefresh = false) {
       if (!this.domainInfo) return

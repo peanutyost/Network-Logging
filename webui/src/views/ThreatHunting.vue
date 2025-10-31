@@ -61,7 +61,7 @@
 
 <script>
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'ThreatHunting',
@@ -69,13 +69,22 @@ export default {
     return {
       orphanedIPs: [],
       loading: false,
-      days: 7
+      days: 7,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadData()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async loadData() {
       this.loading = true
       try {
@@ -121,7 +130,7 @@ export default {
       return new Intl.NumberFormat().format(num || 0)
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
-      return formatDateInTimezone(dateString, formatString)
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     }
   }
 }

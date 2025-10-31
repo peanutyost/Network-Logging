@@ -58,7 +58,7 @@
 
 <script>
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'Dashboard',
@@ -72,20 +72,27 @@ export default {
         period_hours: 24
       },
       topDomains: [],
-      loading: false
+      loading: false,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadData()
     // Refresh every 30 seconds
     this.interval = setInterval(this.loadData, 30000)
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
   },
   beforeUnmount() {
     if (this.interval) {
       clearInterval(this.interval)
     }
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async loadData() {
       try {
         this.loading = true
@@ -112,7 +119,7 @@ export default {
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
-      return formatDateInTimezone(dateString, formatString)
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     }
   }
 }

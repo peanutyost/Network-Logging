@@ -94,7 +94,7 @@
 
 <script>
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 import TrafficChart from './TrafficChart.vue'
 import TrafficTable from './TrafficTable.vue'
 
@@ -120,12 +120,19 @@ export default {
       whoisError: null,
       timeRangeHours: 24,
       timeRangeStart: null,
-      timeRangeEnd: null
+      timeRangeEnd: null,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
-    this.loadDomainInfo()
+    if (this.domain) {
+      this.loadDomainInfo()
+    }
     this.updateTimeRange()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   watch: {
     domain() {
@@ -143,6 +150,10 @@ export default {
     }
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async loadDomainInfo() {
       if (!this.domain) return
       
@@ -182,7 +193,7 @@ export default {
       }
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
-      return formatDateInTimezone(dateString, formatString)
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     },
     formatWhoisField(fieldName) {
       // Convert snake_case to Title Case

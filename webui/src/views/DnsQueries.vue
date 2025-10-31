@@ -47,7 +47,7 @@
 
 <script>
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 import DomainDetail from '../components/DomainDetail.vue'
 
 export default {
@@ -61,17 +61,26 @@ export default {
       loading: false,
       limit: 200,
       interval: null,
-      selectedDomain: null
+      selectedDomain: null,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadData()
     this.interval = setInterval(this.loadData, 30000)
+    // Listen for timezone changes
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
   },
   beforeUnmount() {
     if (this.interval) clearInterval(this.interval)
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      // Force re-render by updating a reactive property
+      this.$forceUpdate()
+    },
     async loadData() {
       try {
         this.loading = true
@@ -83,7 +92,7 @@ export default {
       }
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm:ss') {
-      return formatDateInTimezone(dateString, formatString)
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     },
     selectDomain(domain) {
       this.selectedDomain = domain

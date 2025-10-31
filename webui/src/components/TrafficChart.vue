@@ -22,7 +22,7 @@ import {
   Legend
 } from 'chart.js'
 import api from '../api.js'
-import { formatDateInTimezone } from '../utils/timezone.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 
 ChartJS.register(
   CategoryScale,
@@ -78,11 +78,16 @@ export default {
             }
           }
         }
-      }
+      },
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadData()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   watch: {
     domain() {
@@ -96,12 +101,16 @@ export default {
     }
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.loadData() // Reload data to update chart labels
+    },
     async loadData() {
       try {
         const data = await api.getTrafficVolume(this.domain, this.startTime, this.endTime)
         
         if (data && data.length > 0) {
-          const labels = data.map(d => formatDateInTimezone(d.timestamp, 'MMM dd HH:mm'))
+          const labels = data.map(d => formatDateInTimezone(d.timestamp, 'MMM dd HH:mm', this.currentTimezone))
           this.chartData = {
             labels,
             datasets: [

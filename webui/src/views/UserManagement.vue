@@ -108,7 +108,7 @@
 
 <script>
 import api from '../api.js'
-import { format } from 'date-fns'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'UserManagement',
@@ -129,14 +129,23 @@ export default {
       editingUserId: null,
       saving: false,
       saveError: '',
-      currentUser: null
+      currentUser: null,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadUsers()
     this.loadCurrentUser()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async loadUsers() {
       this.loading = true
       this.error = ''
@@ -159,11 +168,7 @@ export default {
       }
     },
     formatDate(dateString) {
-      try {
-        return format(new Date(dateString), 'yyyy-MM-dd HH:mm')
-      } catch {
-        return dateString
-      }
+      return formatDateInTimezone(dateString, 'yyyy-MM-dd HH:mm', this.currentTimezone)
     },
     editUser(user) {
       this.formData = {
