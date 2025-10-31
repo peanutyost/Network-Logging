@@ -400,10 +400,10 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("""
                 SELECT 
                     destination_ip,
-                    SUM(bytes_sent) as total_bytes_sent,
-                    SUM(bytes_received) as total_bytes_received,
-                    SUM(bytes_sent + bytes_received) as total_bytes,
-                    SUM(packet_count) as total_packets,
+                    COALESCE(SUM(bytes_sent), 0) as total_bytes_sent,
+                    COALESCE(SUM(bytes_received), 0) as total_bytes_received,
+                    COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
+                    COALESCE(SUM(packet_count), 0) as total_packets,
                     COUNT(*) as connection_count,
                     MIN(first_seen) as first_seen,
                     MAX(last_update) as last_seen
@@ -437,10 +437,10 @@ class SQLiteDatabase(DatabaseBase):
                 SELECT 
                     COALESCE(domain, destination_ip) as domain,
                     COUNT(*) as query_count,
-                    SUM(bytes_sent + bytes_received) as total_bytes,
-                    SUM(bytes_sent) as bytes_sent,
-                    SUM(bytes_received) as bytes_received,
-                    SUM(packet_count) as total_packets,
+                    COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
+                    COALESCE(SUM(bytes_sent), 0) as bytes_sent,
+                    COALESCE(SUM(bytes_received), 0) as bytes_received,
+                    COALESCE(SUM(packet_count), 0) as total_packets,
                     MAX(last_update) as last_seen
                 FROM traffic_flows
                 WHERE 1=1

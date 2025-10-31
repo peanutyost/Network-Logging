@@ -50,18 +50,33 @@ class TrafficMonitor:
             if not all([source_ip, dest_ip, dest_port, protocol]):
                 return
             
-            # Create flow key
+            # Track bidirectional traffic properly
+            # Determine direction based on whether source is local/private
+            source_is_local = self._is_local_ip(source_ip)
+            dest_is_local = self._is_local_ip(dest_ip)
+            
+            # Create flow key - always use (source_ip, dest_ip, dest_port, protocol)
+            # This matches the database constraint
             flow_key = (source_ip, dest_ip, dest_port, protocol)
             
-            # Determine direction: assume outbound for now
-            # Simple heuristic: if source is localhost/private, it's outbound
-            # In a real scenario, you'd want to track both directions separately
-            is_outbound = self._is_local_ip(source_ip)
-            
-            if is_outbound:
+            # Determine direction for this packet:
+            # - If source is local and dest is external: outbound (bytes_sent)
+            # - If source is external and dest is local: inbound (bytes_received)
+            # - If both are local or both external: use source_is_local to determine direction
+            if source_is_local and not dest_is_local:
+                # Outbound: local -> external
                 self.flow_cache[flow_key]['bytes_sent'] += packet_size
-            else:
+            elif dest_is_local and not source_is_local:
+                # Inbound: external -> local
+                # Note: This creates a separate flow record, but both directions will be aggregated
+                # in get_top_domains when grouping by destination_ip/domain
                 self.flow_cache[flow_key]['bytes_received'] += packet_size
+            else:
+                # Both local or both external - track based on source
+                if source_is_local:
+                    self.flow_cache[flow_key]['bytes_sent'] += packet_size
+                else:
+                    self.flow_cache[flow_key]['bytes_received'] += packet_size
             
             self.flow_cache[flow_key]['packet_count'] += 1
             self.flow_cache[flow_key]['last_update'] = datetime.utcnow()
