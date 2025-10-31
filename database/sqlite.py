@@ -148,6 +148,22 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_time ON dns_events(event_timestamp)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_domain ON dns_events(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_src ON dns_events(source_ip)")
+            
+            # Users table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE,
+                    email TEXT NOT NULL UNIQUE,
+                    hashed_password TEXT NOT NULL,
+                    is_admin INTEGER NOT NULL DEFAULT 0,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
 
             self.conn.commit()
             logger.info("Database tables created successfully")
@@ -647,4 +663,169 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error fetching DNS events: {e}")
             return []
+    
+    # User management methods
+    def create_user(
+        self,
+        username: str,
+        email: str,
+        hashed_password: str,
+        is_admin: bool = False,
+        is_active: bool = True
+    ) -> int:
+        """Create a new user."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO users (username, email, hashed_password, is_admin, is_active)
+                VALUES (?, ?, ?, ?, ?)
+            """, (username, email, hashed_password, 1 if is_admin else 0, 1 if is_active else 0))
+            self.conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            logger.error(f"Error creating user: {e}")
+            raise
+    
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get user by username."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM users WHERE username = ?
+            """, (username,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'username': row[1],
+                    'email': row[2],
+                    'hashed_password': row[3],
+                    'is_admin': bool(row[4]),
+                    'is_active': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7]
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user by username: {e}")
+            return None
+    
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM users WHERE id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'username': row[1],
+                    'email': row[2],
+                    'hashed_password': row[3],
+                    'is_admin': bool(row[4]),
+                    'is_active': bool(row[5]),
+                    'created_at': row[6],
+                    'updated_at': row[7]
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user by id: {e}")
+            return None
+    
+    def get_all_users(self, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get all users with pagination."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT * FROM users
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, skip))
+            rows = cursor.fetchall()
+            return [{
+                'id': row[0],
+                'username': row[1],
+                'email': row[2],
+                'hashed_password': row[3],
+                'is_admin': bool(row[4]),
+                'is_active': bool(row[5]),
+                'created_at': row[6],
+                'updated_at': row[7]
+            } for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting all users: {e}")
+            return []
+    
+    def update_user(
+        self,
+        user_id: int,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        hashed_password: Optional[str] = None,
+        is_admin: Optional[bool] = None,
+        is_active: Optional[bool] = None
+    ) -> bool:
+        """Update user information."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            updates = []
+            params = []
+            
+            if username is not None:
+                updates.append("username = ?")
+                params.append(username)
+            if email is not None:
+                updates.append("email = ?")
+                params.append(email)
+            if hashed_password is not None:
+                updates.append("hashed_password = ?")
+                params.append(hashed_password)
+            if is_admin is not None:
+                updates.append("is_admin = ?")
+                params.append(1 if is_admin else 0)
+            if is_active is not None:
+                updates.append("is_active = ?")
+                params.append(1 if is_active else 0)
+            
+            if not updates:
+                return False
+            
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(user_id)
+            
+            cursor.execute(f"""
+                UPDATE users
+                SET {', '.join(updates)}
+                WHERE id = ?
+            """, tuple(params))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating user: {e}")
+            raise
+    
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error deleting user: {e}")
+            raise
 

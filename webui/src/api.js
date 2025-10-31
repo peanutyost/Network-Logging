@@ -5,6 +5,33 @@ const api = axios.create({
   timeout: 10000
 })
 
+// Add token to requests if available
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
+// Handle 401 errors - redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('user')
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default {
   // Dashboard
   async getDashboardStats(hours = 24) {
@@ -92,6 +119,61 @@ export default {
     
     const response = await api.get(url)
     return response.data
+  },
+
+  // Authentication
+  async login(username, password) {
+    const formData = new URLSearchParams()
+    formData.append('username', username)
+    formData.append('password', password)
+    const response = await api.post('/auth/login', formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    })
+    if (response.data.access_token) {
+      localStorage.setItem('auth_token', response.data.access_token)
+    }
+    return response.data
+  },
+
+  async register(userData) {
+    const response = await api.post('/auth/register', userData)
+    return response.data
+  },
+
+  async getCurrentUser() {
+    const response = await api.get('/auth/me')
+    localStorage.setItem('user', JSON.stringify(response.data))
+    return response.data
+  },
+
+  logout() {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('user')
+  },
+
+  // User Management (Admin only)
+  async getUsers(skip = 0, limit = 100) {
+    const response = await api.get(`/users?skip=${skip}&limit=${limit}`)
+    return response.data
+  },
+
+  async getUser(userId) {
+    const response = await api.get(`/users/${userId}`)
+    return response.data
+  },
+
+  async createUser(userData) {
+    const response = await api.post('/users', userData)
+    return response.data
+  },
+
+  async updateUser(userId, userData) {
+    const response = await api.put(`/users/${userId}`, userData)
+    return response.data
+  },
+
+  async deleteUser(userId) {
+    await api.delete(`/users/${userId}`)
   }
 }
 

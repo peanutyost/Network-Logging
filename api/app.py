@@ -1,7 +1,7 @@
 """FastAPI application."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routes import dns, traffic, threat, dashboard
+from api.routes import dns, traffic, threat, dashboard, auth, users
 
 app = FastAPI(
     title="Network Traffic DNS Logger API",
@@ -19,6 +19,8 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(dns.router)
 app.include_router(traffic.router)
 app.include_router(threat.router)

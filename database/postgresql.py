@@ -186,6 +186,22 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_domain ON dns_events(domain)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_dnsevents_src ON dns_events(source_ip)")
                 
+                # Users table
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(255) NOT NULL UNIQUE,
+                        email VARCHAR(255) NOT NULL UNIQUE,
+                        hashed_password TEXT NOT NULL,
+                        is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+                
                 conn.commit()
                 logger.info("Database tables created successfully")
         except Exception as e:
@@ -692,6 +708,155 @@ class PostgreSQLDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error fetching DNS events: {e}")
             return []
+        finally:
+            self._return_connection(conn)
+    
+    # User management methods
+    def create_user(
+        self,
+        username: str,
+        email: str,
+        hashed_password: str,
+        is_admin: bool = False,
+        is_active: bool = True
+    ) -> int:
+        """Create a new user."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO users (username, email, hashed_password, is_admin, is_active)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (username, email, hashed_password, is_admin, is_active))
+                user_id = cur.fetchone()[0]
+                conn.commit()
+                return user_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error creating user: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get user by username."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM users WHERE username = %s
+                """, (username,))
+                result = cur.fetchone()
+                if result:
+                    return dict(result)
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user by username: {e}")
+            return None
+        finally:
+            self._return_connection(conn)
+    
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM users WHERE id = %s
+                """, (user_id,))
+                result = cur.fetchone()
+                if result:
+                    return dict(result)
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user by id: {e}")
+            return None
+        finally:
+            self._return_connection(conn)
+    
+    def get_all_users(self, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get all users with pagination."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM users
+                    ORDER BY created_at DESC
+                    LIMIT %s OFFSET %s
+                """, (limit, skip))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting all users: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
+    def update_user(
+        self,
+        user_id: int,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        hashed_password: Optional[str] = None,
+        is_admin: Optional[bool] = None,
+        is_active: Optional[bool] = None
+    ) -> bool:
+        """Update user information."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                updates = []
+                params = []
+                
+                if username is not None:
+                    updates.append("username = %s")
+                    params.append(username)
+                if email is not None:
+                    updates.append("email = %s")
+                    params.append(email)
+                if hashed_password is not None:
+                    updates.append("hashed_password = %s")
+                    params.append(hashed_password)
+                if is_admin is not None:
+                    updates.append("is_admin = %s")
+                    params.append(is_admin)
+                if is_active is not None:
+                    updates.append("is_active = %s")
+                    params.append(is_active)
+                
+                if not updates:
+                    return False
+                
+                updates.append("updated_at = CURRENT_TIMESTAMP")
+                params.append(user_id)
+                
+                cur.execute(f"""
+                    UPDATE users
+                    SET {', '.join(updates)}
+                    WHERE id = %s
+                """, tuple(params))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating user: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error deleting user: {e}")
+            raise
         finally:
             self._return_connection(conn)
 

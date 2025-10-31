@@ -1,6 +1,6 @@
 <template>
   <div id="app">
-    <nav class="navbar">
+    <nav v-if="isAuthenticated" class="navbar">
       <div class="nav-container">
         <h1 class="nav-title">Network Traffic DNS Logger</h1>
         <ul class="nav-links">
@@ -10,8 +10,16 @@
           <li><router-link to="/dns-events">DNS Events</router-link></li>
           <li><router-link to="/traffic">Traffic Analytics</router-link></li>
           <li><router-link to="/threats">Threat Hunting</router-link></li>
+          <li v-if="isAdmin"><router-link to="/users">User Management</router-link></li>
         </ul>
-        <TimezoneSelector />
+        <div class="nav-right">
+          <div v-if="currentUser" class="user-info">
+            <span class="username">{{ currentUser.username }}</span>
+            <span v-if="currentUser.is_admin" class="admin-badge">Admin</span>
+          </div>
+          <TimezoneSelector />
+          <button @click="handleLogout" class="logout-button">Logout</button>
+        </div>
       </div>
     </nav>
     <main class="main-content">
@@ -22,11 +30,57 @@
 
 <script>
 import TimezoneSelector from './components/TimezoneSelector.vue'
+import api from './api.js'
 
 export default {
   name: 'App',
   components: {
     TimezoneSelector
+  },
+  data() {
+    return {
+      currentUser: null
+    }
+  },
+  computed: {
+    isAuthenticated() {
+      return !!localStorage.getItem('auth_token')
+    },
+    isAdmin() {
+      return this.currentUser?.is_admin || false
+    }
+  },
+  watch: {
+    $route() {
+      this.loadCurrentUser()
+    }
+  },
+  mounted() {
+    this.loadCurrentUser()
+  },
+  methods: {
+    async loadCurrentUser() {
+      if (this.isAuthenticated) {
+        try {
+          const userStr = localStorage.getItem('user')
+          if (userStr) {
+            this.currentUser = JSON.parse(userStr)
+          } else {
+            this.currentUser = await api.getCurrentUser()
+          }
+        } catch (err) {
+          // Ignore errors, user might not be logged in
+          this.currentUser = null
+        }
+      } else {
+        this.currentUser = null
+      }
+    },
+    handleLogout() {
+      api.logout()
+      this.currentUser = null
+      this.$router.push('/login')
+    }
   }
 }
 </script>
@@ -51,12 +105,52 @@ body {
 }
 
 .nav-container {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: white;
+}
+
+.username {
+  font-weight: 500;
+}
+
+.admin-badge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.logout-button {
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.3s;
+}
+
+.logout-button:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .nav-title {

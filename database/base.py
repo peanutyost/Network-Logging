@@ -150,4 +150,50 @@ class DatabaseBase(ABC):
     def get_whois_by_domain(self, domain: str) -> Optional[Dict[str, Any]]:
         """Get WHOIS data for a domain."""
         pass
+    
+    # User management operations
+    @abstractmethod
+    def create_user(
+        self,
+        username: str,
+        email: str,
+        hashed_password: str,
+        is_admin: bool = False,
+        is_active: bool = True
+    ) -> int:
+        """Create a new user."""
+        pass
+    
+    @abstractmethod
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get user by username."""
+        pass
+    
+    @abstractmethod
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID."""
+        pass
+    
+    @abstractmethod
+    def get_all_users(self, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get all users with pagination."""
+        pass
+    
+    @abstractmethod
+    def update_user(
+        self,
+        user_id: int,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        hashed_password: Optional[str] = None,
+        is_admin: Optional[bool] = None,
+        is_active: Optional[bool] = None
+    ) -> bool:
+        """Update user information."""
+        pass
+    
+    @abstractmethod
+    def delete_user(self, user_id: int) -> bool:
+        """Delete a user."""
+        pass
 
