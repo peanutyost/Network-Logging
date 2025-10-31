@@ -70,22 +70,44 @@ class DNSLogger:
                     self.db.insert_dns_lookup(domain, query_type, [], timestamp)
             
             elif dns_type == 'response':
-                resolved_ips = dns_data.get('resolved_ips', [])
-                if not resolved_ips:
-                    return
-                
+                resolved_data = dns_data.get('resolved_ips', [])
                 timestamp = datetime.fromtimestamp(dns_data.get('timestamp', datetime.utcnow().timestamp()))
                 
-                # Check if this is a new domain (first time seeing it)
-                existing = self.db.get_dns_lookup_by_domain(domain)
-                is_new_domain = existing is None
-                first_seen = timestamp if is_new_domain else None
+                # Extract only IP addresses (A and AAAA records) for lookup table
+                resolved_ips = []
+                if resolved_data:
+                    for item in resolved_data:
+                        if isinstance(item, str):
+                            # A and AAAA records are stored as plain IP strings
+                            # Other record types are stored as "TYPE:data"
+                            # Check if it starts with a known record type prefix
+                            if not any(item.startswith(prefix + ':') for prefix in ['CNAME', 'NS', 'MX', 'TXT', 'SRV', 'SOA', 'PTR']):
+                                # Could be an IP address (IPv4 has no colons, IPv6 has colons)
+                                if self._is_ip_address(item):
+                                    resolved_ips.append(item)
                 
-                self.db.insert_dns_lookup(domain, query_type, resolved_ips, timestamp, first_seen)
-                logger.debug(f"Logged DNS response: {domain} -> {resolved_ips}")
+                # Only update lookup table for A and AAAA records that have IP addresses
+                # Other record types (MX, TXT, SRV, etc.) are logged in events but not in lookup table
+                is_new_domain = False
+                if query_type in ['A', 'AAAA'] and resolved_ips:
+                    # Check if this is a new domain (first time seeing it)
+                    existing = self.db.get_dns_lookup_by_domain(domain)
+                    # Check if existing entry matches this query type
+                    is_new_domain = existing is None
+                    is_new_type = existing is None or (existing.get('query_type') != query_type)
+                    first_seen = timestamp if is_new_domain or is_new_type else None
+                    
+                    self.db.insert_dns_lookup(domain, query_type, resolved_ips, timestamp, first_seen)
+                    logger.debug(f"Logged DNS response: {domain} ({query_type}) -> {resolved_ips}")
+                elif resolved_data:
+                    # Log non-A/AAAA responses in events but not in lookup table
+                    logger.debug(f"Logged DNS response: {domain} ({query_type}) -> {resolved_data}")
+                else:
+                    # Log responses with no data (NXDOMAIN, etc.)
+                    logger.debug(f"Logged DNS response: {domain} ({query_type}) -> no data")
                 
-                # Trigger WHOIS lookup for new domains
-                if is_new_domain:
+                # Trigger WHOIS lookup for new A/AAAA domains with IPs
+                if query_type in ['A', 'AAAA'] and resolved_ips and is_new_domain:
                     try:
                         import threading
                         threading.Thread(target=self.whois_service.get_whois, args=(domain,), daemon=True).start()
@@ -94,3 +116,12 @@ class DNSLogger:
         
         except Exception as e:
             logger.error(f"Error logging DNS data: {e}")
+    
+    def _is_ip_address(self, addr: str) -> bool:
+        """Check if string is a valid IP address (IPv4 or IPv6)."""
+        try:
+            import ipaddress
+            ipaddress.ip_address(addr)
+            return True
+        except ValueError:
+            return False
