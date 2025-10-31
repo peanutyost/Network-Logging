@@ -23,6 +23,11 @@ export default {
     return response.data
   },
 
+  async getDomainWhois(domain, forceRefresh = false) {
+    const response = await api.get(`/dns/domain/${encodeURIComponent(domain)}/whois?force_refresh=${forceRefresh}`)
+    return response.data
+  },
+
   async getRecentDns(limit = 200, since = null) {
     let url = `/dns/recent?limit=${limit}`
     if (since) {
