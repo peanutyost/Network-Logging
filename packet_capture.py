@@ -167,19 +167,27 @@ class PacketCapture:
         """Build BPF filter string."""
         filters = []
         
-        # Always include DNS
-        filters.append("port 53")
-        
-        # Add port filters if specified
+        # If specific ports are configured, use those ports
         if self.capture_config.ports:
             port_filter = " or ".join([f"port {p}" for p in self.capture_config.ports])
             filters.append(f"({port_filter})")
+            # Always include DNS (port 53) even when specific ports are configured
+            if 53 not in self.capture_config.ports:
+                filters.append("port 53")
+        else:
+            # If no ports specified, capture all traffic (DNS will be captured too)
+            # Don't add any port filters - let it capture everything
         
-        # Add custom BPF filter if specified
+        # Add custom BPF filter if specified (this overrides port filters)
         if self.capture_config.bpf_filter:
-            filters.append(f"({self.capture_config.bpf_filter})")
+            return self.capture_config.bpf_filter
         
-        return " or ".join(filters) if len(filters) > 1 else (filters[0] if filters else None)
+        # If we have port filters, combine them with OR
+        if filters:
+            return " or ".join(filters) if len(filters) > 1 else filters[0]
+        
+        # No filters = capture all traffic
+        return None
     
     def start(self):
         """Start packet capture in a separate thread."""

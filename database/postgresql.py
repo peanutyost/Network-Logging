@@ -462,7 +462,7 @@ class PostgreSQLDatabase(DatabaseBase):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 query = """
                     SELECT 
-                        domain,
+                        COALESCE(domain, destination_ip::text) as domain,
                         COUNT(*) as query_count,
                         SUM(bytes_sent + bytes_received) as total_bytes,
                         SUM(bytes_sent) as bytes_sent,
@@ -470,7 +470,7 @@ class PostgreSQLDatabase(DatabaseBase):
                         SUM(packet_count) as total_packets,
                         MAX(last_update) as last_seen
                     FROM traffic_flows
-                    WHERE domain IS NOT NULL
+                    WHERE 1=1
                 """
                 params = []
                 
@@ -483,7 +483,7 @@ class PostgreSQLDatabase(DatabaseBase):
                     params.append(end_time)
                 
                 query += """
-                    GROUP BY domain
+                    GROUP BY COALESCE(domain, destination_ip::text)
                     ORDER BY total_bytes DESC
                     LIMIT %s
                 """
