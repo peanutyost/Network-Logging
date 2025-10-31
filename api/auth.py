@@ -20,13 +20,25 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against a hash."""
     try:
+        # Handle None or empty values
+        if not plain_password or not hashed_password:
+            return False
+        
         # Convert to bytes if needed
         if isinstance(hashed_password, str):
             hashed_password = hashed_password.encode('utf-8')
         if isinstance(plain_password, str):
             plain_password = plain_password.encode('utf-8')
-        return bcrypt.checkpw(plain_password, hashed_password)
-    except Exception:
+        
+        # Verify password
+        result = bcrypt.checkpw(plain_password, hashed_password)
+        return result
+    except Exception as e:
+        # Log the error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Password verification error: {type(e).__name__}: {e}")
+        logger.debug(f"Plain password type: {type(plain_password)}, Hashed password type: {type(hashed_password)}")
         return False
 
 

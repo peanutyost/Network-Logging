@@ -23,15 +23,22 @@ async def login(
     db: DatabaseBase = Depends(get_db)
 ):
     """Login endpoint."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     user = db.get_user_by_username(form_data.username)
     if not user:
+        logger.warning(f"Login attempt for non-existent user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    if not verify_password(form_data.password, user["hashed_password"]):
+    # Check password
+    password_valid = verify_password(form_data.password, user["hashed_password"])
+    if not password_valid:
+        logger.warning(f"Invalid password for user: {form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -71,6 +78,12 @@ async def register(
     # For now, we'll let the database handle unique constraint
     
     hashed_password = get_password_hash(user_data.password)
+    # Debug: Verify the hash immediately
+    import logging
+    logger = logging.getLogger(__name__)
+    test_verify = verify_password(user_data.password, hashed_password)
+    logger.debug(f"Password hash created for user {user_data.username}, verification test: {test_verify}")
+    
     try:
         user_id = db.create_user(
             username=user_data.username,
@@ -85,6 +98,14 @@ async def register(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create user"
             )
+        
+        # Debug: Verify password against what was stored
+        stored_hash = user.get("hashed_password")
+        verify_stored = verify_password(user_data.password, stored_hash)
+        logger.debug(f"Password verification against stored hash: {verify_stored}")
+        if not verify_stored:
+            logger.error(f"Password hash mismatch! Created hash: {hashed_password[:20]}..., Stored hash: {stored_hash[:20] if stored_hash else None}...")
+        
         return UserResponse(**user)
     except Exception as e:
         # Check for unique constraint violation
