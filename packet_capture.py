@@ -28,10 +28,21 @@ class PacketCapture:
         self.capture_config = config.config.capture
         self.running = False
         self.capture_thread = None
+        self.packet_count = 0
+        self.last_log_time = 0
     
     def _process_packet(self, packet):
         """Process a captured packet."""
         try:
+            import time
+            self.packet_count += 1
+            
+            # Log packet count every 10 seconds
+            current_time = time.time()
+            if current_time - self.last_log_time >= 10:
+                logger.info(f"Processing packets... Total captured: {self.packet_count}")
+                self.last_log_time = current_time
+            
             # Check if packet has IP layer
             if not packet.haslayer(IP):
                 return
@@ -211,6 +222,20 @@ class PacketCapture:
     def _capture_loop(self):
         """Main capture loop."""
         try:
+            # Check if interface is specified and valid
+            from scapy.all import get_if_list
+            available_interfaces = get_if_list()
+            
+            if self.capture_config.interface:
+                if self.capture_config.interface not in available_interfaces:
+                    logger.error(f"Interface '{self.capture_config.interface}' not found!")
+                    logger.info(f"Available interfaces: {', '.join(available_interfaces)}")
+                    logger.warning(f"Attempting to use '{self.capture_config.interface}' anyway (may fail)")
+                else:
+                    logger.info(f"Using interface: {self.capture_config.interface}")
+            else:
+                logger.info(f"No interface specified, using default. Available: {', '.join(available_interfaces)}")
+            
             bpf_filter = self._build_bpf_filter()
             logger.info(f"Starting packet capture with filter: {bpf_filter}")
             
@@ -222,6 +247,6 @@ class PacketCapture:
                 store=False
             )
         except Exception as e:
-            logger.error(f"Error in packet capture loop: {e}")
+            logger.error(f"Error in packet capture loop: {e}", exc_info=True)
             self.running = False
 
