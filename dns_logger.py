@@ -107,12 +107,31 @@ class DNSLogger:
                     logger.debug(f"Logged DNS response: {domain} ({query_type}) -> no data")
                 
                 # Trigger WHOIS lookup for new A/AAAA domains with IPs
+                # Only lookup if domain is not local/private and has valid public IPs
                 if query_type in ['A', 'AAAA'] and resolved_ips and is_new_domain:
-                    try:
-                        import threading
-                        threading.Thread(target=self.whois_service.get_whois, args=(domain,), daemon=True).start()
-                    except Exception as e:
-                        logger.debug(f"Error triggering WHOIS lookup for {domain}: {e}")
+                    # Check if any resolved IPs are private/internal
+                    has_public_ip = False
+                    for ip in resolved_ips:
+                        try:
+                            import ipaddress
+                            ip_obj = ipaddress.ip_address(ip)
+                            # Skip private/internal IP ranges
+                            if not ip_obj.is_private and not ip_obj.is_loopback and not ip_obj.is_link_local and not ip_obj.is_multicast:
+                                has_public_ip = True
+                                break
+                        except ValueError:
+                            pass
+                    
+                    # Only trigger WHOIS if domain has public IPs
+                    # The whois_service will also check if domain is local
+                    if has_public_ip:
+                        try:
+                            import threading
+                            threading.Thread(target=self.whois_service.get_whois, args=(domain,), daemon=True).start()
+                        except Exception as e:
+                            logger.debug(f"Error triggering WHOIS lookup for {domain}: {e}")
+                    else:
+                        logger.debug(f"Skipping WHOIS lookup for {domain} (only private/internal IPs)")
         
         except Exception as e:
             logger.error(f"Error logging DNS data: {e}")

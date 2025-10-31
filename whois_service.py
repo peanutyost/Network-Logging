@@ -1,5 +1,6 @@
 """WHOIS lookup service with caching."""
 import logging
+import ipaddress
 try:
     import whois
 except ImportError:
@@ -9,7 +10,7 @@ except ImportError:
     except ImportError:
         whois = None
         logging.warning("WHOIS library not found. Install python-whois or whois package")
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 from database import get_database
 
@@ -24,6 +25,49 @@ class WhoisService:
         self.db = get_database()
         self.cache_days = 60  # Cache WHOIS data for 60 days
     
+    def is_local_domain(self, domain: str) -> bool:
+        """Check if a domain is local/private and should not have WHOIS lookups.
+        
+        Args:
+            domain: Domain name to check
+        
+        Returns:
+            True if domain is local/private, False otherwise
+        """
+        if not domain:
+            return True
+        
+        domain_lower = domain.lower().strip()
+        
+        # Check for localhost
+        if domain_lower == 'localhost' or domain_lower.startswith('localhost.'):
+            return True
+        
+        # Check for .local TLD (mDNS/Bonjour)
+        if domain_lower.endswith('.local'):
+            return True
+        
+        # Check for private/internal domains (single label or common internal TLDs)
+        internal_tlds = ['.lan', '.internal', '.home', '.corp', '.localdomain', '.local']
+        for tld in internal_tlds:
+            if domain_lower.endswith(tld):
+                return True
+        
+        # Check if it's an IP address (shouldn't do WHOIS on IPs directly via domain lookup)
+        try:
+            # Remove port if present
+            domain_part = domain_lower.split(':')[0]
+            ipaddress.ip_address(domain_part)
+            return True
+        except ValueError:
+            pass
+        
+        # Check for single-label domains (no dots) - likely internal
+        if '.' not in domain_lower:
+            return True
+        
+        return False
+    
     def get_whois(self, domain: str, force_refresh: bool = False) -> Optional[Dict[str, Any]]:
         """Get WHOIS data for a domain with caching.
         
@@ -35,6 +79,11 @@ class WhoisService:
             Dictionary with WHOIS data or None if lookup fails
         """
         try:
+            # Skip WHOIS lookup for local/private domains
+            if self.is_local_domain(domain):
+                logger.debug(f"Skipping WHOIS lookup for local/private domain: {domain}")
+                return None
+            
             # Check cache first
             if not force_refresh:
                 cached = self.db.get_whois_by_domain(domain)
