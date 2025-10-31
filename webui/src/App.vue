@@ -39,12 +39,13 @@ export default {
   },
   data() {
     return {
-      currentUser: null
+      currentUser: null,
+      authToken: localStorage.getItem('auth_token')
     }
   },
   computed: {
     isAuthenticated() {
-      return !!localStorage.getItem('auth_token')
+      return !!this.authToken
     },
     isAdmin() {
       return this.currentUser?.is_admin || false
@@ -60,6 +61,9 @@ export default {
   },
   methods: {
     async loadCurrentUser() {
+      // Check for token in localStorage and update reactive state
+      this.authToken = localStorage.getItem('auth_token')
+      
       if (this.isAuthenticated) {
         try {
           const userStr = localStorage.getItem('user')
@@ -71,6 +75,7 @@ export default {
         } catch (err) {
           // Ignore errors, user might not be logged in
           this.currentUser = null
+          this.authToken = null
         }
       } else {
         this.currentUser = null
@@ -79,8 +84,27 @@ export default {
     handleLogout() {
       api.logout()
       this.currentUser = null
+      this.authToken = null
       this.$router.push('/login')
     }
+  },
+  created() {
+    // Listen for storage events to update auth state across tabs
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'auth_token') {
+        this.authToken = e.newValue
+        if (!e.newValue) {
+          this.currentUser = null
+        } else {
+          this.loadCurrentUser()
+        }
+      }
+    })
+    
+    // Listen for auth state changes (login/logout in same tab)
+    window.addEventListener('auth-state-changed', () => {
+      this.loadCurrentUser()
+    })
   }
 }
 </script>

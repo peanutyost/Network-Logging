@@ -117,6 +117,10 @@ export default {
       try {
         await api.login(this.username, this.password)
         const user = await api.getCurrentUser()
+        // Force parent component to update by triggering a custom event
+        window.dispatchEvent(new Event('auth-state-changed'))
+        // Small delay to ensure state updates
+        await this.$nextTick()
         this.$router.push('/')
       } catch (err) {
         this.error = err.response?.data?.detail || 'Login failed. Please check your credentials.'
