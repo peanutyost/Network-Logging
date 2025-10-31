@@ -28,21 +28,10 @@ class PacketCapture:
         self.capture_config = config.config.capture
         self.running = False
         self.capture_thread = None
-        self.packet_count = 0
-        self.last_log_time = 0
     
     def _process_packet(self, packet):
         """Process a captured packet."""
         try:
-            import time
-            self.packet_count += 1
-            
-            # Log packet count every 10 seconds
-            current_time = time.time()
-            if current_time - self.last_log_time >= 10:
-                logger.info(f"Processing packets... Total captured: {self.packet_count}")
-                self.last_log_time = current_time
-            
             # Check if packet has IP layer
             if not packet.haslayer(IP):
                 return
