@@ -12,7 +12,8 @@ from api.models import (
     ThreatFeedUpdateRequest,
     ThreatFeedUpdateResponse
 )
-from api.dependencies import get_db, get_current_user, require_admin
+from api.dependencies import get_db
+from api.auth import get_current_active_user, require_admin
 from database.base import DatabaseBase
 from threat_intel import ThreatIntelligenceManager
 
@@ -26,7 +27,7 @@ async def get_orphaned_ips(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     db: DatabaseBase = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get IPs that have traffic but no DNS entry in the last N days."""
     if days < 1 or days > 365:
@@ -39,7 +40,7 @@ async def get_orphaned_ips(
 @router.get("/feeds", response_model=List[ThreatFeedResponse])
 async def get_threat_feeds(
     db: DatabaseBase = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get list of threat intelligence feeds."""
     feeds = db.get_threat_feeds()
@@ -50,7 +51,7 @@ async def get_threat_feeds(
 async def update_threat_feed(
     feed_name: str,
     db: DatabaseBase = Depends(get_db),
-    current_user = Depends(require_admin)
+    current_user: dict = Depends(require_admin)
 ):
     """Manually trigger update of a threat intelligence feed."""
     try:
@@ -70,7 +71,7 @@ async def get_threat_alerts(
     since: Optional[datetime] = None,
     resolved: Optional[bool] = None,
     db: DatabaseBase = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Get threat alerts."""
     if limit < 1 or limit > 1000:
@@ -84,7 +85,7 @@ async def get_threat_alerts(
 async def resolve_threat_alert(
     alert_id: int,
     db: DatabaseBase = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: dict = Depends(get_current_active_user)
 ):
     """Mark a threat alert as resolved."""
     success = db.resolve_threat_alert(alert_id)
