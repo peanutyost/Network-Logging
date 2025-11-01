@@ -289,6 +289,30 @@ class ThreatIntelligenceManager:
         """
         self.feeds[feed.name] = feed
         logger.info(f"Registered threat feed: {feed.name}")
+        
+        # Initialize feed metadata in database if it doesn't exist
+        try:
+            existing_feeds = self.db.get_threat_feeds()
+            feed_exists = any(f['feed_name'] == feed.name for f in existing_feeds)
+            
+            if not feed_exists:
+                # Create initial feed metadata entry
+                self.db.update_threat_feed_metadata(
+                    feed_name=feed.name,
+                    last_update=None,
+                    indicator_count=0,
+                    source_url=feed.url,
+                    enabled=feed.enabled,
+                    error=None
+                )
+                logger.info(f"Initialized database entry for feed: {feed.name}")
+            else:
+                # Sync enabled status from database
+                feed_info = next((f for f in existing_feeds if f['feed_name'] == feed.name), None)
+                if feed_info:
+                    feed.enabled = feed_info.get('enabled', True)
+        except Exception as e:
+            logger.warning(f"Error initializing feed metadata for {feed.name}: {e}")
     
     def update_feed(self, feed_name: str) -> Dict[str, Any]:
         """Download and update a specific threat feed.
