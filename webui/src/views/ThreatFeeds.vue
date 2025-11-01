@@ -230,14 +230,27 @@ export default {
     },
     async triggerScan() {
       if (this.scanning) return
+      
+      // Warn user that scan may take a while
+      const proceed = confirm(
+        `Start historical threat scan?\n\n` +
+        `This will scan the past ${this.lookbackDays} days of DNS history.\n` +
+        `This may take several minutes depending on the amount of data.\n\n` +
+        `Continue?`
+      )
+      if (!proceed) return
+      
       this.scanning = true
       this.lastScanResult = null
+      const startTime = Date.now()
+      
       try {
         const result = await api.scanHistoricalThreats(this.lookbackDays)
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1)
         this.lastScanResult = result
         if (result.success) {
           alert(
-            `Historical scan complete!\n\n` +
+            `Historical scan complete! (took ${duration}s)\n\n` +
             `Events scanned: ${result.events_scanned.toLocaleString()}\n` +
             `Domains checked: ${result.domains_checked.toLocaleString()}\n` +
             `IPs checked: ${result.ips_checked.toLocaleString()}\n` +
@@ -248,8 +261,16 @@ export default {
         }
       } catch (error) {
         console.error('Error triggering scan:', error)
-        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error occurred'
-        alert(`Historical scan failed: ${errorMsg}\n\nPlease check the server logs for more details.`)
+        if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+          alert(
+            `Scan timed out after 5 minutes.\n\n` +
+            `The scan may still be running on the server. Please check the server logs.\n` +
+            `For large datasets, consider reducing the lookback period.`
+          )
+        } else {
+          const errorMsg = error.response?.data?.detail || error.message || 'Unknown error occurred'
+          alert(`Historical scan failed: ${errorMsg}\n\nPlease check the server logs for more details.`)
+        }
       } finally {
         this.scanning = false
       }

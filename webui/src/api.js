@@ -243,7 +243,10 @@ export default {
 
   // Historical threat scan
   async scanHistoricalThreats(days = 30) {
-    const response = await api.post(`/threat/scan-historical?days=${days}`)
+    // Use a longer timeout for historical scans (5 minutes)
+    const response = await api.post(`/threat/scan-historical?days=${days}`, {}, {
+      timeout: 300000  // 5 minutes in milliseconds
+    })
     return response.data
   }
 }
