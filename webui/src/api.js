@@ -180,6 +180,30 @@ export default {
   async changePassword(passwordData) {
     const response = await api.post('/auth/change-password', passwordData)
     return response.data
+  },
+
+  // Threat Intelligence
+  async getThreatFeeds() {
+    const response = await api.get('/threat/feeds')
+    return response.data
+  },
+
+  async updateThreatFeed(feedName) {
+    const response = await api.post(`/threat/feeds/${feedName}/update`)
+    return response.data
+  },
+
+  async getThreatAlerts(limit = 100, since = null, resolved = null) {
+    const params = { limit }
+    if (since) params.since = since
+    if (resolved !== null) params.resolved = resolved
+    const response = await api.get('/threat/alerts', { params })
+    return response.data
+  },
+
+  async resolveThreatAlert(alertId) {
+    const response = await api.post(`/threat/alerts/${alertId}/resolve`)
+    return response.data
   }
 }
 

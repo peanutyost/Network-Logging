@@ -164,6 +164,64 @@ class SQLiteDatabase(DatabaseBase):
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+            
+            # Threat Feeds table (metadata about threat intelligence feeds)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS threat_feeds (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feed_name TEXT NOT NULL UNIQUE,
+                    source_url TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    last_update TIMESTAMP,
+                    indicator_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_name ON threat_feeds(feed_name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_enabled ON threat_feeds(enabled)")
+            
+            # Threat Indicators table (actual domains and IPs from feeds)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS threat_indicators (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feed_name TEXT NOT NULL,
+                    indicator_type TEXT NOT NULL, -- 'domain' or 'ip'
+                    domain TEXT,
+                    ip TEXT,
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip, ''))
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_feed ON threat_indicators(feed_name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_type ON threat_indicators(indicator_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_domain ON threat_indicators(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_ip ON threat_indicators(ip)")
+            
+            # Threat Alerts table (alerts when matches are detected)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS threat_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    feed_name TEXT NOT NULL,
+                    indicator_type TEXT NOT NULL, -- 'domain' or 'ip'
+                    domain TEXT,
+                    ip TEXT,
+                    query_type TEXT NOT NULL,
+                    source_ip TEXT NOT NULL,
+                    resolved INTEGER NOT NULL DEFAULT 0,
+                    resolved_at TIMESTAMP,
+                    resolved_by INTEGER,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_feed ON threat_alerts(feed_name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_resolved ON threat_alerts(resolved)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_created ON threat_alerts(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_domain ON threat_alerts(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_ip ON threat_alerts(ip)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_src ON threat_alerts(source_ip)")
 
             self.conn.commit()
             logger.info("Database tables created successfully")
@@ -827,5 +885,222 @@ class SQLiteDatabase(DatabaseBase):
             return cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Error deleting user: {e}")
+            raise
+    
+    # Threat intelligence operations
+    def update_threat_indicators(
+        self,
+        feed_name: str,
+        domains: List[str],
+        ips: List[str],
+        source_url: str
+    ) -> int:
+        """Update threat indicators for a feed (replace existing)."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            # Delete existing indicators for this feed
+            cursor.execute("DELETE FROM threat_indicators WHERE feed_name = ?", (feed_name,))
+            
+            # Insert domain indicators
+            domain_values = [(feed_name, 'domain', domain.lower(), None) for domain in domains]
+            if domain_values:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO threat_indicators 
+                       (feed_name, indicator_type, domain, ip)
+                       VALUES (?, ?, ?, ?)""",
+                    domain_values
+                )
+            
+            # Insert IP indicators
+            ip_values = [(feed_name, 'ip', None, ip) for ip in ips]
+            if ip_values:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO threat_indicators 
+                       (feed_name, indicator_type, domain, ip)
+                       VALUES (?, ?, ?, ?)""",
+                    ip_values
+                )
+            
+            self.conn.commit()
+            total_count = len(domains) + len(ips)
+            logger.info(f"Updated {total_count} indicators for feed {feed_name} ({len(domains)} domains, {len(ips)} IPs)")
+            return total_count
+        except Exception as e:
+            logger.error(f"Error updating threat indicators: {e}")
+            raise
+    
+    def check_threat_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Check if a domain or IP matches a threat indicator."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            if domain:
+                cursor.execute("""
+                    SELECT feed_name, indicator_type, domain, ip, first_seen, last_seen
+                    FROM threat_indicators
+                    WHERE indicator_type = 'domain' AND domain = ?
+                    LIMIT 1
+                """, (domain.lower(),))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'feed_name': row[0],
+                        'indicator_type': row[1],
+                        'domain': row[2],
+                        'ip': row[3],
+                        'first_seen': row[4],
+                        'last_seen': row[5]
+                    }
+            elif ip:
+                cursor.execute("""
+                    SELECT feed_name, indicator_type, domain, ip, first_seen, last_seen
+                    FROM threat_indicators
+                    WHERE indicator_type = 'ip' AND ip = ?
+                    LIMIT 1
+                """, (ip,))
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'feed_name': row[0],
+                        'indicator_type': row[1],
+                        'domain': row[2],
+                        'ip': row[3],
+                        'first_seen': row[4],
+                        'last_seen': row[5]
+                    }
+            return None
+        except Exception as e:
+            logger.error(f"Error checking threat indicator: {e}")
+            return None
+    
+    def create_threat_alert(
+        self,
+        domain: Optional[str],
+        ip: Optional[str],
+        query_type: str,
+        source_ip: str,
+        threat_feed: str,
+        indicator_type: str
+    ) -> int:
+        """Create a threat alert."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO threat_alerts 
+                (feed_name, indicator_type, domain, ip, query_type, source_ip)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (threat_feed, indicator_type, domain.lower() if domain else None, ip, query_type, source_ip))
+            self.conn.commit()
+            alert_id = cursor.lastrowid
+            logger.warning(f"Threat alert created: {indicator_type} match - {domain or ip} from {source_ip} (feed: {threat_feed})")
+            return alert_id
+        except Exception as e:
+            logger.error(f"Error creating threat alert: {e}")
+            raise
+    
+    def get_threat_alerts(
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat alerts."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT * FROM threat_alerts WHERE 1=1"
+            params = []
+            
+            if since:
+                query += " AND created_at >= ?"
+                params.append(since)
+            
+            if resolved is not None:
+                query += " AND resolved = ?"
+                params.append(1 if resolved else 0)
+            
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            
+            # Convert rows to dicts
+            columns = [description[0] for description in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat alerts: {e}")
+            return []
+    
+    def get_threat_feeds(self) -> List[Dict[str, Any]]:
+        """Get list of threat feeds."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM threat_feeds ORDER BY feed_name")
+            rows = cursor.fetchall()
+            
+            columns = [description[0] for description in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat feeds: {e}")
+            return []
+    
+    def update_threat_feed_metadata(
+        self,
+        feed_name: str,
+        last_update: datetime,
+        indicator_count: int,
+        source_url: str,
+        enabled: bool = True,
+        error: Optional[str] = None
+    ) -> None:
+        """Update threat feed metadata."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(feed_name) DO UPDATE SET
+                    source_url = EXCLUDED.source_url,
+                    enabled = EXCLUDED.enabled,
+                    last_update = EXCLUDED.last_update,
+                    indicator_count = EXCLUDED.indicator_count,
+                    last_error = EXCLUDED.last_error,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (feed_name, source_url, 1 if enabled else 0, last_update, indicator_count, error))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error updating threat feed metadata: {e}")
+            raise
+    
+    def resolve_threat_alert(self, alert_id: int) -> bool:
+        """Mark a threat alert as resolved."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE threat_alerts
+                SET resolved = 1, resolved_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (alert_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error resolving threat alert: {e}")
             raise
 

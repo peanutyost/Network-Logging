@@ -137,24 +137,6 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_orphaned ON traffic_flows(is_orphaned)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_timestamp ON traffic_flows(last_update)")
                 
-                # Threat Indicators table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS threat_indicators (
-                        id SERIAL PRIMARY KEY,
-                        indicator_type VARCHAR(50) NOT NULL,
-                        source_ip INET,
-                        destination_ip INET,
-                        domain VARCHAR(255),
-                        severity VARCHAR(20) NOT NULL,
-                        description TEXT,
-                        detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_type ON threat_indicators(indicator_type)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_severity ON threat_indicators(severity)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_detected ON threat_indicators(detected_at)")
-                
                 # WHOIS Data table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS whois_data (
@@ -201,6 +183,64 @@ class PostgreSQLDatabase(DatabaseBase):
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+                
+                # Threat Feeds table (metadata about threat intelligence feeds)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_feeds (
+                        id SERIAL PRIMARY KEY,
+                        feed_name VARCHAR(255) NOT NULL UNIQUE,
+                        source_url TEXT NOT NULL,
+                        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        last_update TIMESTAMP,
+                        indicator_count INTEGER NOT NULL DEFAULT 0,
+                        last_error TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_name ON threat_feeds(feed_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_enabled ON threat_feeds(enabled)")
+                
+                # Threat Indicators table (actual domains and IPs from feeds)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_indicators (
+                        id SERIAL PRIMARY KEY,
+                        feed_name VARCHAR(255) NOT NULL,
+                        indicator_type VARCHAR(10) NOT NULL, -- 'domain' or 'ip'
+                        domain VARCHAR(255),
+                        ip INET,
+                        first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip::text, ''))
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_feed ON threat_indicators(feed_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_type ON threat_indicators(indicator_type)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_domain ON threat_indicators(domain)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_ip ON threat_indicators(ip)")
+                
+                # Threat Alerts table (alerts when matches are detected)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_alerts (
+                        id SERIAL PRIMARY KEY,
+                        feed_name VARCHAR(255) NOT NULL,
+                        indicator_type VARCHAR(10) NOT NULL, -- 'domain' or 'ip'
+                        domain VARCHAR(255),
+                        ip INET,
+                        query_type VARCHAR(10) NOT NULL,
+                        source_ip INET NOT NULL,
+                        resolved BOOLEAN NOT NULL DEFAULT FALSE,
+                        resolved_at TIMESTAMP,
+                        resolved_by INTEGER,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_feed ON threat_alerts(feed_name)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_resolved ON threat_alerts(resolved)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_created ON threat_alerts(created_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_domain ON threat_alerts(domain)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_ip ON threat_alerts(ip)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_src ON threat_alerts(source_ip)")
                 
                 conn.commit()
                 logger.info("Database tables created successfully")
@@ -856,6 +896,218 @@ class PostgreSQLDatabase(DatabaseBase):
         except Exception as e:
             conn.rollback()
             logger.error(f"Error deleting user: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    # Threat intelligence operations
+    def update_threat_indicators(
+        self,
+        feed_name: str,
+        domains: List[str],
+        ips: List[str],
+        source_url: str
+    ) -> int:
+        """Update threat indicators for a feed (replace existing)."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Delete existing indicators for this feed
+                cur.execute("DELETE FROM threat_indicators WHERE feed_name = %s", (feed_name,))
+                
+                # Insert domain indicators
+                domain_values = [(feed_name, 'domain', domain.lower(), None) for domain in domains]
+                if domain_values:
+                    execute_values(
+                        cur,
+                        """INSERT INTO threat_indicators (feed_name, indicator_type, domain, ip)
+                           VALUES %s""",
+                        domain_values
+                    )
+                
+                # Insert IP indicators
+                ip_values = [(feed_name, 'ip', None, ip) for ip in ips]
+                if ip_values:
+                    execute_values(
+                        cur,
+                        """INSERT INTO threat_indicators (feed_name, indicator_type, domain, ip)
+                           VALUES %s""",
+                        ip_values
+                    )
+                
+                conn.commit()
+                total_count = len(domains) + len(ips)
+                logger.info(f"Updated {total_count} indicators for feed {feed_name} ({len(domains)} domains, {len(ips)} IPs)")
+                return total_count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating threat indicators: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def check_threat_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Check if a domain or IP matches a threat indicator."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if domain:
+                    # Check exact domain match
+                    cur.execute("""
+                        SELECT feed_name, indicator_type, domain, ip, first_seen, last_seen
+                        FROM threat_indicators
+                        WHERE indicator_type = 'domain' AND domain = %s
+                        LIMIT 1
+                    """, (domain.lower(),))
+                    row = cur.fetchone()
+                    if row:
+                        return dict(row)
+                elif ip:
+                    # Check IP match
+                    cur.execute("""
+                        SELECT feed_name, indicator_type, domain, ip, first_seen, last_seen
+                        FROM threat_indicators
+                        WHERE indicator_type = 'ip' AND ip = %s
+                        LIMIT 1
+                    """, (ip,))
+                    row = cur.fetchone()
+                    if row:
+                        return dict(row)
+                return None
+        except Exception as e:
+            logger.error(f"Error checking threat indicator: {e}")
+            return None
+        finally:
+            self._return_connection(conn)
+    
+    def create_threat_alert(
+        self,
+        domain: Optional[str],
+        ip: Optional[str],
+        query_type: str,
+        source_ip: str,
+        threat_feed: str,
+        indicator_type: str
+    ) -> int:
+        """Create a threat alert."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO threat_alerts 
+                    (feed_name, indicator_type, domain, ip, query_type, source_ip)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (threat_feed, indicator_type, domain.lower() if domain else None, ip, query_type, source_ip))
+                alert_id = cur.fetchone()[0]
+                conn.commit()
+                logger.warning(f"Threat alert created: {indicator_type} match - {domain or ip} from {source_ip} (feed: {threat_feed})")
+                return alert_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error creating threat alert: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def get_threat_alerts(
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat alerts."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = "SELECT * FROM threat_alerts WHERE 1=1"
+                params = []
+                
+                if since:
+                    query += " AND created_at >= %s"
+                    params.append(since)
+                
+                if resolved is not None:
+                    query += " AND resolved = %s"
+                    params.append(resolved)
+                
+                query += " ORDER BY created_at DESC LIMIT %s"
+                params.append(limit)
+                
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat alerts: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
+    def get_threat_feeds(self) -> List[Dict[str, Any]]:
+        """Get list of threat feeds."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM threat_feeds ORDER BY feed_name")
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat feeds: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
+    def update_threat_feed_metadata(
+        self,
+        feed_name: str,
+        last_update: datetime,
+        indicator_count: int,
+        source_url: str,
+        enabled: bool = True,
+        error: Optional[str] = None
+    ) -> None:
+        """Update threat feed metadata."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (feed_name) DO UPDATE SET
+                        source_url = EXCLUDED.source_url,
+                        enabled = EXCLUDED.enabled,
+                        last_update = EXCLUDED.last_update,
+                        indicator_count = EXCLUDED.indicator_count,
+                        last_error = EXCLUDED.last_error,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (feed_name, source_url, enabled, last_update, indicator_count, error))
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating threat feed metadata: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def resolve_threat_alert(self, alert_id: int) -> bool:
+        """Mark a threat alert as resolved."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE threat_alerts
+                    SET resolved = TRUE, resolved_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (alert_id,))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error resolving threat alert: {e}")
             raise
         finally:
             self._return_connection(conn)

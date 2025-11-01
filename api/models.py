@@ -163,3 +163,47 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ThreatFeedResponse(BaseModel):
+    """Threat feed metadata response model."""
+    id: int
+    feed_name: str
+    source_url: str
+    enabled: bool
+    last_update: Optional[datetime] = None
+    indicator_count: int
+    last_error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ThreatAlertResponse(BaseModel):
+    """Threat alert response model."""
+    id: int
+    feed_name: str
+    indicator_type: str
+    domain: Optional[str] = None
+    ip: Optional[str] = None
+    query_type: str
+    source_ip: str
+    resolved: bool
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[int] = None
+    created_at: datetime
+
+
+class ThreatFeedUpdateRequest(BaseModel):
+    """Request to update a threat feed."""
+    feed_name: str
+
+
+class ThreatFeedUpdateResponse(BaseModel):
+    """Response from threat feed update."""
+    success: bool
+    feed: str
+    domains: Optional[int] = None
+    ips: Optional[int] = None
+    indicator_count: Optional[int] = None
+    last_update: Optional[str] = None
+    error: Optional[str] = None

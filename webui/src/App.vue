@@ -10,6 +10,8 @@
           <li><router-link to="/dns-events">DNS Events</router-link></li>
           <li><router-link to="/traffic">Traffic Analytics</router-link></li>
           <li><router-link to="/threats">Threat Hunting</router-link></li>
+          <li><router-link to="/threat-alerts">Threat Alerts</router-link></li>
+          <li v-if="isAdmin"><router-link to="/threat-feeds">Threat Feeds</router-link></li>
           <li v-if="isAdmin"><router-link to="/users">User Management</router-link></li>
           <li><router-link to="/settings">Settings</router-link></li>
         </ul>

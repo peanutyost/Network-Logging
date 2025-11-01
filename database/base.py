@@ -196,4 +196,130 @@ class DatabaseBase(ABC):
     def delete_user(self, user_id: int) -> bool:
         """Delete a user."""
         pass
+    
+    # Threat intelligence operations
+    @abstractmethod
+    def update_threat_indicators(
+        self,
+        feed_name: str,
+        domains: List[str],
+        ips: List[str],
+        source_url: str
+    ) -> int:
+        """Update threat indicators for a feed (replace existing).
+        
+        Args:
+            feed_name: Name of the threat feed
+            domains: List of domain indicators
+            ips: List of IP indicators
+            source_url: URL where the feed was downloaded from
+            
+        Returns:
+            Total number of indicators stored
+        """
+        pass
+    
+    @abstractmethod
+    def check_threat_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Check if a domain or IP matches a threat indicator.
+        
+        Args:
+            domain: Domain name to check
+            ip: IP address to check
+            
+        Returns:
+            Threat indicator match information or None
+        """
+        pass
+    
+    @abstractmethod
+    def create_threat_alert(
+        self,
+        domain: Optional[str],
+        ip: Optional[str],
+        query_type: str,
+        source_ip: str,
+        threat_feed: str,
+        indicator_type: str
+    ) -> int:
+        """Create a threat alert.
+        
+        Args:
+            domain: Matched domain (if applicable)
+            ip: Matched IP (if applicable)
+            query_type: DNS query type
+            source_ip: Source IP that triggered the alert
+            threat_feed: Name of the threat feed
+            indicator_type: Type of indicator ('domain' or 'ip')
+            
+        Returns:
+            Alert ID
+        """
+        pass
+    
+    @abstractmethod
+    def get_threat_alerts(
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat alerts.
+        
+        Args:
+            limit: Maximum number of alerts to return
+            since: Only return alerts since this timestamp
+            resolved: Filter by resolved status (True/False/None for all)
+            
+        Returns:
+            List of threat alerts
+        """
+        pass
+    
+    @abstractmethod
+    def get_threat_feeds(self) -> List[Dict[str, Any]]:
+        """Get list of threat feeds.
+        
+        Returns:
+            List of threat feed information
+        """
+        pass
+    
+    @abstractmethod
+    def update_threat_feed_metadata(
+        self,
+        feed_name: str,
+        last_update: datetime,
+        indicator_count: int,
+        source_url: str,
+        enabled: bool = True,
+        error: Optional[str] = None
+    ) -> None:
+        """Update threat feed metadata.
+        
+        Args:
+            feed_name: Name of the threat feed
+            last_update: Last update timestamp
+            indicator_count: Number of indicators in feed
+            source_url: URL where feed is downloaded from
+            enabled: Whether feed is enabled
+            error: Last error message (if any)
+        """
+        pass
+    
+    @abstractmethod
+    def resolve_threat_alert(self, alert_id: int) -> bool:
+        """Mark a threat alert as resolved.
+        
+        Args:
+            alert_id: ID of alert to resolve
+            
+        Returns:
+            True if alert was resolved, False if not found
+        """
+        pass
 

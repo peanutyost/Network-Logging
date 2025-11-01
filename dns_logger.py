@@ -1,7 +1,7 @@
 """DNS logging module."""
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from database import get_database
 from config import config
 from whois_service import WhoisService
@@ -12,12 +12,17 @@ logger = logging.getLogger(__name__)
 class DNSLogger:
     """Handles DNS query/response logging to database."""
     
-    def __init__(self):
-        """Initialize DNS logger."""
+    def __init__(self, threat_intel_manager=None):
+        """Initialize DNS logger.
+        
+        Args:
+            threat_intel_manager: Optional threat intelligence manager instance
+        """
         self.db = get_database()
         self.db.connect()
         self.db.create_tables()
         self.whois_service = WhoisService()
+        self.threat_intel_manager = threat_intel_manager
     
     def log_dns(self, dns_data: Dict[str, Any]):
         """Log DNS query or response to database.
@@ -41,6 +46,24 @@ class DNSLogger:
             
             if not domain:
                 return
+            
+            # Check for threat indicators before logging
+            if self.threat_intel_manager:
+                try:
+                    # Check domain for threat match
+                    threat_match = self.threat_intel_manager.check_domain(domain)
+                    if threat_match:
+                        # Create alert
+                        self.threat_intel_manager.create_alert(
+                            domain=domain,
+                            ip=None,
+                            query_type=query_type,
+                            source_ip=source_ip or '',
+                            threat_feed=threat_match.get('feed_name', 'Unknown'),
+                            indicator_type='domain'
+                        )
+                except Exception as e:
+                    logger.debug(f"Error checking domain threat: {e}")
             
             # Record per-event row
             try:
@@ -132,6 +155,24 @@ class DNSLogger:
                             logger.debug(f"Error triggering WHOIS lookup for {domain}: {e}")
                     else:
                         logger.debug(f"Skipping WHOIS lookup for {domain} (only private/internal IPs)")
+                
+                # Check resolved IPs for threat indicators
+                if self.threat_intel_manager and resolved_ips:
+                    for ip in resolved_ips:
+                        try:
+                            threat_match = self.threat_intel_manager.check_ip(ip)
+                            if threat_match:
+                                # Create alert for IP match
+                                self.threat_intel_manager.create_alert(
+                                    domain=domain,
+                                    ip=ip,
+                                    query_type=query_type,
+                                    source_ip=source_ip or '',
+                                    threat_feed=threat_match.get('feed_name', 'Unknown'),
+                                    indicator_type='ip'
+                                )
+                        except Exception as e:
+                            logger.debug(f"Error checking IP threat: {e}")
         
         except Exception as e:
             logger.error(f"Error logging DNS data: {e}")
