@@ -204,6 +204,11 @@ export default {
   async resolveThreatAlert(alertId) {
     const response = await api.post(`/threat/alerts/${alertId}/resolve`)
     return response.data
+  },
+
+  async toggleThreatFeed(feedName, enabled) {
+    const response = await api.put(`/threat/feeds/${feedName}/toggle?enabled=${enabled}`)
+    return response.data
   }
 }
 

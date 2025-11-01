@@ -182,6 +182,89 @@ class URLhausFeed(ThreatFeedBase):
         return False
 
 
+class PhishingArmyFeed(ThreatFeedBase):
+    """Phishing Army blocklist feed."""
+    
+    def __init__(self):
+        """Initialize Phishing Army feed."""
+        super().__init__(
+            name="PhishingArmy",
+            url="https://phishing.army/download/phishing_army_blocklist_extended.txt",
+            enabled=True
+        )
+    
+    def parse(self, content: str) -> Dict[str, Set[str]]:
+        """Parse Phishing Army plain text format.
+        
+        Format: One domain per line, comments start with #
+        
+        Returns:
+            Dictionary with 'domains' and 'ips' sets
+        """
+        domains: Set[str] = set()
+        ips: Set[str] = set()
+        
+        for line in content.split('\n'):
+            line = line.strip()
+            
+            # Skip comments and empty lines
+            if not line or line.startswith('#'):
+                continue
+            
+            # Parse domain
+            try:
+                domain = line.lower().strip()
+                
+                # Skip if it's just whitespace or invalid
+                if not domain or domain.startswith('#'):
+                    continue
+                
+                # Check if it's an IP address
+                try:
+                    ip_obj = ipaddress.ip_address(domain)
+                    # Only include public IPs
+                    if not ip_obj.is_private and not ip_obj.is_loopback and not ip_obj.is_link_local and not ip_obj.is_multicast:
+                        ips.add(str(ip_obj))
+                    continue
+                except ValueError:
+                    pass
+                
+                # Filter out local domains
+                if not self._is_local_domain(domain):
+                    domains.add(domain)
+            except Exception as e:
+                logger.debug(f"Error parsing line '{line}': {e}")
+                continue
+        
+        logger.info(f"Parsed {len(domains)} domains and {len(ips)} IPs from PhishingArmy")
+        return {'domains': domains, 'ips': ips}
+    
+    @staticmethod
+    def _is_local_domain(domain: str) -> bool:
+        """Check if domain is local/private and should be excluded."""
+        domain_lower = domain.lower()
+        
+        # Local/private TLDs
+        local_tlds = [
+            '.local', '.localhost', '.internal', '.lan', '.home', '.corp',
+            '.localdomain', '.arpa', '.test', '.example', '.invalid'
+        ]
+        
+        if any(domain_lower.endswith(tld) for tld in local_tlds):
+            return True
+        
+        # Single label domains (no dots)
+        if '.' not in domain_lower or domain_lower.count('.') == 0:
+            return True
+        
+        # Reserved/local hostnames
+        local_hostnames = ['localhost', 'localhost.localdomain', 'broadcasthost']
+        if domain_lower in local_hostnames:
+            return True
+        
+        return False
+
+
 class ThreatIntelligenceManager:
     """Manages threat intelligence feeds and indicator matching."""
     
@@ -196,6 +279,7 @@ class ThreatIntelligenceManager:
         
         # Register default feeds
         self.register_feed(URLhausFeed())
+        self.register_feed(PhishingArmyFeed())
     
     def register_feed(self, feed: ThreatFeedBase):
         """Register a threat feed.

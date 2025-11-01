@@ -93,3 +93,38 @@ async def resolve_threat_alert(
         raise HTTPException(status_code=404, detail="Alert not found")
     return {"success": True, "message": "Alert resolved"}
 
+
+@router.put("/feeds/{feed_name}/toggle")
+async def toggle_threat_feed(
+    feed_name: str,
+    enabled: bool,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Enable or disable a threat feed."""
+    try:
+        # Get current feed info
+        feeds = db.get_threat_feeds()
+        feed_info = next((f for f in feeds if f['feed_name'] == feed_name), None)
+        
+        if not feed_info:
+            raise HTTPException(status_code=404, detail=f"Feed '{feed_name}' not found")
+        
+        # Update enabled status
+        db.update_threat_feed_enabled(feed_name, enabled)
+        
+        # Also update the in-memory feed object if manager exists
+        try:
+            manager = ThreatIntelligenceManager(db)
+            if feed_name in manager.feeds:
+                manager.feeds[feed_name].enabled = enabled
+        except:
+            pass  # Ignore if manager can't be created
+        
+        return {"success": True, "feed": feed_name, "enabled": enabled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling threat feed {feed_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error toggling feed: {str(e)}")
+

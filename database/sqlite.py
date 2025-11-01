@@ -1103,4 +1103,21 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error resolving threat alert: {e}")
             raise
+    
+    def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
+        """Update the enabled status of a threat feed."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                UPDATE threat_feeds
+                SET enabled = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE feed_name = ?
+            """, (1 if enabled else 0, feed_name))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating threat feed enabled status: {e}")
+            raise
 

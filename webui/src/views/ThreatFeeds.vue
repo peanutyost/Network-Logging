@@ -13,9 +13,20 @@
         <div v-for="feed in feeds" :key="feed.id" class="feed-card">
           <div class="feed-header">
             <h3>{{ feed.feed_name }}</h3>
-            <span :class="['status-badge', feed.enabled ? 'enabled' : 'disabled']">
-              {{ feed.enabled ? 'Enabled' : 'Disabled' }}
-            </span>
+            <div class="feed-controls">
+              <label class="toggle-switch">
+                <input 
+                  type="checkbox" 
+                  :checked="feed.enabled" 
+                  @change="toggleFeed(feed.feed_name, $event.target.checked)"
+                  :disabled="toggling === feed.feed_name"
+                />
+                <span class="toggle-slider"></span>
+              </label>
+              <span :class="['status-badge', feed.enabled ? 'enabled' : 'disabled']">
+                {{ feed.enabled ? 'Enabled' : 'Disabled' }}
+              </span>
+            </div>
           </div>
           
           <div class="feed-info">
@@ -45,7 +56,7 @@
           <div class="feed-actions">
             <button 
               @click="updateFeed(feed.feed_name)" 
-              :disabled="updating === feed.feed_name"
+              :disabled="updating === feed.feed_name || !feed.enabled"
               class="btn btn-primary"
             >
               {{ updating === feed.feed_name ? 'Updating...' : 'Update Now' }}
@@ -68,6 +79,7 @@ export default {
       feeds: [],
       loading: false,
       updating: null,
+      toggling: null,
       currentTimezone: getTimezone()
     }
   },
@@ -92,6 +104,24 @@ export default {
         alert('Error loading threat feeds. Please try again.')
       } finally {
         this.loading = false
+      }
+    },
+    async toggleFeed(feedName, enabled) {
+      this.toggling = feedName
+      try {
+        await api.toggleThreatFeed(feedName, enabled)
+        // Update local state
+        const feed = this.feeds.find(f => f.feed_name === feedName)
+        if (feed) {
+          feed.enabled = enabled
+        }
+      } catch (error) {
+        console.error('Error toggling feed:', error)
+        alert('Error toggling feed. Please try again.')
+        // Reload feeds to get correct state
+        this.loadFeeds()
+      } finally {
+        this.toggling = null
       }
     },
     async updateFeed(feedName) {
@@ -163,6 +193,62 @@ export default {
   margin: 0;
   font-size: 1.25rem;
   color: #333;
+}
+
+.feed-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: #28a745;
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(26px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .status-badge {
@@ -249,4 +335,3 @@ export default {
   cursor: not-allowed;
 }
 </style>
-

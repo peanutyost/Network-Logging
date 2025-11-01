@@ -322,4 +322,17 @@ class DatabaseBase(ABC):
             True if alert was resolved, False if not found
         """
         pass
+    
+    @abstractmethod
+    def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
+        """Update the enabled status of a threat feed.
+        
+        Args:
+            feed_name: Name of the threat feed
+            enabled: Whether the feed should be enabled
+            
+        Returns:
+            True if feed was updated, False if not found
+        """
+        pass
 

@@ -1361,4 +1361,23 @@ class PostgreSQLDatabase(DatabaseBase):
             raise
         finally:
             self._return_connection(conn)
+    
+    def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
+        """Update the enabled status of a threat feed."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE threat_feeds
+                    SET enabled = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE feed_name = %s
+                """, (enabled, feed_name))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating threat feed enabled status: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
 

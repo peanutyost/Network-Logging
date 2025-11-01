@@ -70,16 +70,22 @@ class ThreatFeedScheduler:
     def _update_all_feeds(self):
         """Update all enabled threat feeds."""
         logger.info("Updating all threat intelligence feeds...")
-        for feed_name in self.threat_intel_manager.feeds.keys():
-            try:
-                logger.info(f"Updating threat feed: {feed_name}")
-                result = self.threat_intel_manager.update_feed(feed_name)
-                if result.get('success'):
-                    logger.info(f"Successfully updated {feed_name}: {result.get('indicator_count', 0)} indicators")
-                else:
-                    logger.error(f"Failed to update {feed_name}: {result.get('error')}")
-            except Exception as e:
-                logger.error(f"Error updating feed {feed_name}: {e}", exc_info=True)
+        # Get enabled feeds from database
+        feeds = self.threat_intel_manager.db.get_threat_feeds()
+        enabled_feeds = [f['feed_name'] for f in feeds if f.get('enabled', True)]
+        
+        for feed_name in enabled_feeds:
+            # Only update if feed is registered and enabled
+            if feed_name in self.threat_intel_manager.feeds:
+                try:
+                    logger.info(f"Updating threat feed: {feed_name}")
+                    result = self.threat_intel_manager.update_feed(feed_name)
+                    if result.get('success'):
+                        logger.info(f"Successfully updated {feed_name}: {result.get('indicator_count', 0)} indicators")
+                    else:
+                        logger.error(f"Failed to update {feed_name}: {result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Error updating feed {feed_name}: {e}", exc_info=True)
 
 
 class NetworkMonitor:
