@@ -1,5 +1,5 @@
 """Threat hunting and analytics API routes."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List, Optional
 from datetime import datetime
 import logging
@@ -10,7 +10,9 @@ from api.models import (
     ThreatFeedResponse,
     ThreatAlertResponse,
     ThreatFeedUpdateRequest,
-    ThreatFeedUpdateResponse
+    ThreatFeedUpdateResponse,
+    ThreatWhitelistEntry,
+    ThreatWhitelistAddRequest
 )
 from api.dependencies import get_db
 from api.auth import get_current_active_user, require_admin
@@ -127,4 +129,71 @@ async def toggle_threat_feed(
     except Exception as e:
         logger.error(f"Error toggling threat feed {feed_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error toggling feed: {str(e)}")
+
+
+@router.get("/whitelist", response_model=List[ThreatWhitelistEntry])
+async def get_threat_whitelist(
+    limit: int = 100,
+    indicator_type: Optional[str] = None,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Get threat whitelist entries."""
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 1000")
+    
+    if indicator_type and indicator_type not in ['domain', 'ip']:
+        raise HTTPException(status_code=400, detail="indicator_type must be 'domain' or 'ip'")
+    
+    entries = db.get_threat_whitelist(limit=limit, indicator_type=indicator_type)
+    return entries
+
+
+@router.post("/whitelist", response_model=ThreatWhitelistEntry, status_code=status.HTTP_201_CREATED)
+async def add_threat_whitelist(
+    request: ThreatWhitelistAddRequest,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Add an indicator to the threat whitelist."""
+    if request.indicator_type not in ['domain', 'ip']:
+        raise HTTPException(status_code=400, detail="indicator_type must be 'domain' or 'ip'")
+    
+    if request.indicator_type == 'domain' and not request.domain:
+        raise HTTPException(status_code=400, detail="domain is required when indicator_type is 'domain'")
+    
+    if request.indicator_type == 'ip' and not request.ip:
+        raise HTTPException(status_code=400, detail="ip is required when indicator_type is 'ip'")
+    
+    try:
+        whitelist_id = db.add_threat_whitelist(
+            indicator_type=request.indicator_type,
+            domain=request.domain,
+            ip=request.ip,
+            reason=request.reason
+        )
+        # Get the created entry
+        entries = db.get_threat_whitelist(limit=1)
+        entry = next((e for e in entries if e['id'] == whitelist_id), None)
+        if entry:
+            return ThreatWhitelistEntry(**entry)
+        raise HTTPException(status_code=500, detail="Failed to retrieve created whitelist entry")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding threat whitelist entry: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error adding whitelist entry: {str(e)}")
+
+
+@router.delete("/whitelist/{whitelist_id}")
+async def remove_threat_whitelist(
+    whitelist_id: int,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Remove an indicator from the threat whitelist."""
+    success = db.remove_threat_whitelist(whitelist_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Whitelist entry not found")
+    return {"success": True, "message": "Whitelist entry removed"}
 

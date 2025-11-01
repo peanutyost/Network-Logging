@@ -207,3 +207,21 @@ class ThreatFeedUpdateResponse(BaseModel):
     indicator_count: Optional[int] = None
     last_update: Optional[str] = None
     error: Optional[str] = None
+
+
+class ThreatWhitelistEntry(BaseModel):
+    """Threat whitelist entry model."""
+    id: int
+    indicator_type: str
+    domain: Optional[str] = None
+    ip: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: datetime
+
+
+class ThreatWhitelistAddRequest(BaseModel):
+    """Request to add a threat whitelist entry."""
+    indicator_type: str  # 'domain' or 'ip'
+    domain: Optional[str] = None
+    ip: Optional[str] = None
+    reason: Optional[str] = None

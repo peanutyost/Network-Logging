@@ -12,6 +12,7 @@ import UserManagement from './views/UserManagement.vue'
 import Settings from './views/Settings.vue'
 import ThreatFeeds from './views/ThreatFeeds.vue'
 import ThreatAlerts from './views/ThreatAlerts.vue'
+import ThreatWhitelist from './views/ThreatWhitelist.vue'
 import api from './api.js'
 
 const routes = [
@@ -65,6 +66,11 @@ const routes = [
     path: '/threat-alerts', 
     component: ThreatAlerts, 
     meta: { requiresAuth: true } 
+  },
+  { 
+    path: '/threat-whitelist', 
+    component: ThreatWhitelist, 
+    meta: { requiresAuth: true, requiresAdmin: true } 
   }
 ]
 

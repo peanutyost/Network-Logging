@@ -335,4 +335,72 @@ class DatabaseBase(ABC):
             True if feed was updated, False if not found
         """
         pass
+    
+    # Threat whitelist operations
+    @abstractmethod
+    def add_threat_whitelist(
+        self,
+        indicator_type: str,  # 'domain' or 'ip'
+        domain: Optional[str] = None,
+        ip: Optional[str] = None,
+        reason: Optional[str] = None
+    ) -> int:
+        """Add an indicator to the threat whitelist.
+        
+        Args:
+            indicator_type: Type of indicator ('domain' or 'ip')
+            domain: Domain to whitelist (if indicator_type is 'domain')
+            ip: IP to whitelist (if indicator_type is 'ip')
+            reason: Optional reason for whitelisting
+            
+        Returns:
+            ID of the whitelist entry
+        """
+        pass
+    
+    @abstractmethod
+    def remove_threat_whitelist(self, whitelist_id: int) -> bool:
+        """Remove an indicator from the threat whitelist.
+        
+        Args:
+            whitelist_id: ID of whitelist entry to remove
+            
+        Returns:
+            True if removed, False if not found
+        """
+        pass
+    
+    @abstractmethod
+    def get_threat_whitelist(
+        self,
+        limit: int = 100,
+        indicator_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat whitelist entries.
+        
+        Args:
+            limit: Maximum number of entries to return
+            indicator_type: Filter by indicator type ('domain' or 'ip')
+            
+        Returns:
+            List of whitelist entries
+        """
+        pass
+    
+    @abstractmethod
+    def is_threat_whitelisted(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> bool:
+        """Check if a domain or IP is whitelisted.
+        
+        Args:
+            domain: Domain to check
+            ip: IP to check
+            
+        Returns:
+            True if whitelisted, False otherwise
+        """
+        pass
 

@@ -209,6 +209,24 @@ export default {
   async toggleThreatFeed(feedName, enabled) {
     const response = await api.put(`/threat/feeds/${feedName}/toggle?enabled=${enabled}`)
     return response.data
+  },
+
+  // Threat Whitelist
+  async getThreatWhitelist(limit = 100, indicatorType = null) {
+    const params = { limit }
+    if (indicatorType) params.indicator_type = indicatorType
+    const response = await api.get('/threat/whitelist', { params })
+    return response.data
+  },
+
+  async addThreatWhitelist(entry) {
+    const response = await api.post('/threat/whitelist', entry)
+    return response.data
+  },
+
+  async removeThreatWhitelist(whitelistId) {
+    const response = await api.delete(`/threat/whitelist/${whitelistId}`)
+    return response.data
   }
 }
 

@@ -492,6 +492,70 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_ip ON threat_alerts(ip)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_src ON threat_alerts(source_ip)")
                 
+                # Threat Whitelist table (domains/IPs that should not trigger alerts)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS threat_whitelist (
+                        id SERIAL PRIMARY KEY,
+                        indicator_type VARCHAR(10) NOT NULL, -- 'domain' or 'ip'
+                        domain VARCHAR(255),
+                        ip INET,
+                        reason TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_by INTEGER
+                    )
+                """)
+                # Migrate columns if they don't exist
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='indicator_type'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN indicator_type VARCHAR(10) NOT NULL DEFAULT 'domain';
+                            ALTER TABLE threat_whitelist ALTER COLUMN indicator_type DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='domain'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN domain VARCHAR(255);
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='ip'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN ip INET;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='reason'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN reason TEXT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='created_at'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_whitelist' AND column_name='created_by'
+                        ) THEN
+                            ALTER TABLE threat_whitelist ADD COLUMN created_by INTEGER;
+                        END IF;
+                    END $$;
+                """)
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_whitelist_domain ON threat_whitelist(domain) WHERE domain IS NOT NULL")
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_whitelist_ip ON threat_whitelist(ip) WHERE ip IS NOT NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_type ON threat_whitelist(indicator_type)")
+                
                 conn.commit()
                 logger.info("Database tables created successfully")
         except Exception as e:
@@ -1378,6 +1442,146 @@ class PostgreSQLDatabase(DatabaseBase):
             conn.rollback()
             logger.error(f"Error updating threat feed enabled status: {e}")
             raise
+        finally:
+            self._return_connection(conn)
+    
+    # Threat whitelist operations
+    def add_threat_whitelist(
+        self,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None,
+        reason: Optional[str] = None
+    ) -> int:
+        """Add an indicator to the threat whitelist."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Check if entry already exists
+                if domain:
+                    cur.execute("""
+                        SELECT id FROM threat_whitelist
+                        WHERE indicator_type = %s AND domain = %s
+                        LIMIT 1
+                    """, (indicator_type, domain.lower()))
+                    existing = cur.fetchone()
+                    if existing:
+                        return existing[0]
+                elif ip:
+                    cur.execute("""
+                        SELECT id FROM threat_whitelist
+                        WHERE indicator_type = %s AND ip = %s
+                        LIMIT 1
+                    """, (indicator_type, ip))
+                    existing = cur.fetchone()
+                    if existing:
+                        return existing[0]
+                
+                # Insert new entry
+                cur.execute("""
+                    INSERT INTO threat_whitelist (indicator_type, domain, ip, reason)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                """, (indicator_type, domain.lower() if domain else None, ip, reason))
+                result = cur.fetchone()
+                if result:
+                    conn.commit()
+                    return result[0]
+                raise ValueError("Failed to add whitelist entry")
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error adding threat whitelist entry: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def remove_threat_whitelist(self, whitelist_id: int) -> bool:
+        """Remove an indicator from the threat whitelist."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM threat_whitelist WHERE id = %s", (whitelist_id,))
+                conn.commit()
+                return cur.rowcount > 0
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error removing threat whitelist entry: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def get_threat_whitelist(
+        self,
+        limit: int = 100,
+        indicator_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat whitelist entries."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = "SELECT * FROM threat_whitelist WHERE 1=1"
+                params = []
+                
+                if indicator_type:
+                    query += " AND indicator_type = %s"
+                    params.append(indicator_type)
+                
+                query += " ORDER BY created_at DESC LIMIT %s"
+                params.append(limit)
+                
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat whitelist: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
+    def is_threat_whitelisted(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> bool:
+        """Check if a domain or IP is whitelisted."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                if domain:
+                    # Check exact match
+                    cur.execute("""
+                        SELECT 1 FROM threat_whitelist
+                        WHERE indicator_type = 'domain' AND domain = %s
+                        LIMIT 1
+                    """, (domain.lower(),))
+                    if cur.fetchone():
+                        return True
+                    
+                    # Check if domain is a subdomain of a whitelisted domain
+                    parts = domain.lower().split('.')
+                    for i in range(1, len(parts)):
+                        parent_domain = '.'.join(parts[i:])
+                        if len(parent_domain.split('.')) >= 2:
+                            cur.execute("""
+                                SELECT 1 FROM threat_whitelist
+                                WHERE indicator_type = 'domain' AND domain = %s
+                                LIMIT 1
+                            """, (parent_domain,))
+                            if cur.fetchone():
+                                return True
+                    
+                    return False
+                elif ip:
+                    cur.execute("""
+                        SELECT 1 FROM threat_whitelist
+                        WHERE indicator_type = 'ip' AND ip = %s
+                        LIMIT 1
+                    """, (ip,))
+                    return cur.fetchone() is not None
+                return False
+        except Exception as e:
+            logger.error(f"Error checking threat whitelist: {e}")
+            return False
         finally:
             self._return_connection(conn)
 

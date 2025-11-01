@@ -222,6 +222,24 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_domain ON threat_alerts(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_ip ON threat_alerts(ip)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_src ON threat_alerts(source_ip)")
+            
+            # Threat Whitelist table (domains/IPs that should not trigger alerts)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS threat_whitelist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    indicator_type TEXT NOT NULL, -- 'domain' or 'ip'
+                    domain TEXT,
+                    ip TEXT,
+                    reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    created_by INTEGER,
+                    UNIQUE(domain),
+                    UNIQUE(ip)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_type ON threat_whitelist(indicator_type)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_domain ON threat_whitelist(domain)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_ip ON threat_whitelist(ip)")
 
             self.conn.commit()
             logger.info("Database tables created successfully")
@@ -1120,4 +1138,127 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error updating threat feed enabled status: {e}")
             raise
+    
+    # Threat whitelist operations
+    def add_threat_whitelist(
+        self,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None,
+        reason: Optional[str] = None
+    ) -> int:
+        """Add an indicator to the threat whitelist."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT OR IGNORE INTO threat_whitelist (indicator_type, domain, ip, reason)
+                VALUES (?, ?, ?, ?)
+            """, (indicator_type, domain.lower() if domain else None, ip, reason))
+            self.conn.commit()
+            if cursor.lastrowid:
+                return cursor.lastrowid
+            else:
+                # Entry already exists, find it
+                cursor.execute("""
+                    SELECT id FROM threat_whitelist
+                    WHERE (indicator_type = ? AND domain = ?) OR (indicator_type = ? AND ip = ?)
+                    LIMIT 1
+                """, (indicator_type, domain.lower() if domain else None, indicator_type, ip))
+                row = cursor.fetchone()
+                if row:
+                    return row[0]
+                raise ValueError("Failed to add whitelist entry")
+        except Exception as e:
+            logger.error(f"Error adding threat whitelist entry: {e}")
+            raise
+    
+    def remove_threat_whitelist(self, whitelist_id: int) -> bool:
+        """Remove an indicator from the threat whitelist."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM threat_whitelist WHERE id = ?", (whitelist_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error removing threat whitelist entry: {e}")
+            raise
+    
+    def get_threat_whitelist(
+        self,
+        limit: int = 100,
+        indicator_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get threat whitelist entries."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT * FROM threat_whitelist WHERE 1=1"
+            params = []
+            
+            if indicator_type:
+                query += " AND indicator_type = ?"
+                params.append(indicator_type)
+            
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, tuple(params))
+            rows = cursor.fetchall()
+            
+            columns = [description[0] for description in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting threat whitelist: {e}")
+            return []
+    
+    def is_threat_whitelisted(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> bool:
+        """Check if a domain or IP is whitelisted."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            if domain:
+                # Check exact match
+                cursor.execute("""
+                    SELECT 1 FROM threat_whitelist
+                    WHERE indicator_type = 'domain' AND domain = ?
+                    LIMIT 1
+                """, (domain.lower(),))
+                if cursor.fetchone():
+                    return True
+                
+                # Check if domain is a subdomain of a whitelisted domain
+                parts = domain.lower().split('.')
+                for i in range(1, len(parts)):
+                    parent_domain = '.'.join(parts[i:])
+                    if len(parent_domain.split('.')) >= 2:
+                        cursor.execute("""
+                            SELECT 1 FROM threat_whitelist
+                            WHERE indicator_type = 'domain' AND domain = ?
+                            LIMIT 1
+                        """, (parent_domain,))
+                        if cursor.fetchone():
+                            return True
+                
+                return False
+            elif ip:
+                cursor.execute("""
+                    SELECT 1 FROM threat_whitelist
+                    WHERE indicator_type = 'ip' AND ip = ?
+                    LIMIT 1
+                """, (ip,))
+                return cursor.fetchone() is not None
+            return False
+        except Exception as e:
+            logger.error(f"Error checking threat whitelist: {e}")
+            return False
 
