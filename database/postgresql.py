@@ -210,9 +210,13 @@ class PostgreSQLDatabase(DatabaseBase):
                         domain VARCHAR(255),
                         ip INET,
                         first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip::text, ''))
+                        last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
+                """)
+                # Create unique index to ensure no duplicates per feed/type/indicator
+                cur.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_ind_unique 
+                    ON threat_indicators (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip::text, ''))
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_feed ON threat_indicators(feed_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_type ON threat_indicators(indicator_type)")
