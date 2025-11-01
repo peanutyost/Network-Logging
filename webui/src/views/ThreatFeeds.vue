@@ -248,7 +248,8 @@ export default {
         }
       } catch (error) {
         console.error('Error triggering scan:', error)
-        alert('Error running historical scan. Please try again.')
+        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error occurred'
+        alert(`Historical scan failed: ${errorMsg}\n\nPlease check the server logs for more details.`)
       } finally {
         this.scanning = false
       }

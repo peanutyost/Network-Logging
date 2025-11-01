@@ -505,150 +505,183 @@ class ThreatIntelligenceManager:
         import json
         import ipaddress
         
-        logger.info(f"Starting historical threat scan for past {days} days...")
-        start_time = datetime.utcnow() - timedelta(days=days)
-        
-        # Get all DNS events from the lookback period
-        # Use a very large limit - we'll process in batches if needed
-        dns_events = self.db.get_dns_events(
-            limit=1000000,  # Large limit to get all events
-            since=start_time
-        )
-        
-        logger.info(f"Found {len(dns_events)} DNS events to scan")
-        
-        alerts_created = 0
-        domains_checked = set()
-        ips_checked = set()
-        
-        # Get all existing alerts to avoid duplicates
-        existing_alerts = self.db.get_threat_alerts(
-            limit=10000,
-            since=None,
-            resolved=None
-        )
-        existing_alert_keys = set()
-        for alert in existing_alerts:
-            if alert.get('domain'):
-                key = (alert.get('domain').lower(), alert.get('feed_name'), 'domain')
-                existing_alert_keys.add(key)
-            if alert.get('ip'):
-                key = (alert.get('ip'), alert.get('feed_name'), 'ip')
-                existing_alert_keys.add(key)
-        
-        # Check each DNS event
-        for event in dns_events:
-            domain = event.get('domain')
-            resolved_ips = event.get('resolved_ips', [])
-            source_ip = event.get('source_ip', '')
-            query_type = event.get('query_type', 'A')
+        try:
+            logger.info(f"Starting historical threat scan for past {days} days...")
+            start_time = datetime.utcnow() - timedelta(days=days)
             
-            # Check domain if not already processed
-            if domain:
-                domain_key = domain.lower()
-                if domain_key not in domains_checked:
-                    domains_checked.add(domain_key)
-                    
-                    # Skip if whitelisted
-                    if self.db.is_threat_whitelisted(domain=domain):
-                        continue
-                    
-                    # Check for threat match
-                    threat_match = self.check_domain(domain)
-                    if threat_match:
-                        feed_name = threat_match.get('feed_name', 'Unknown')
-                        alert_key = (domain_key, feed_name, 'domain')
-                        
-                        # Check if alert already exists
-                        if alert_key not in existing_alert_keys:
-                            try:
-                                self.create_alert(
-                                    domain=domain,
-                                    ip=None,
-                                    query_type=query_type,
-                                    source_ip=source_ip,
-                                    threat_feed=feed_name,
-                                    indicator_type='domain'
-                                )
-                                existing_alert_keys.add(alert_key)
-                                alerts_created += 1
-                                if alerts_created % 100 == 0:
-                                    logger.info(f"Created {alerts_created} alerts so far...")
-                            except Exception as e:
-                                logger.debug(f"Error creating alert for domain {domain}: {e}")
+            # Get all DNS events from the lookback period
+            # Use a very large limit - we'll process in batches if needed
+            try:
+                dns_events = self.db.get_dns_events(
+                    limit=1000000,  # Large limit to get all events
+                    since=start_time
+                )
+            except Exception as e:
+                logger.error(f"Error fetching DNS events: {e}", exc_info=True)
+                return {
+                    'success': False,
+                    'error': f"Error fetching DNS events: {str(e)}",
+                    'events_scanned': 0,
+                    'domains_checked': 0,
+                    'ips_checked': 0,
+                    'alerts_created': 0,
+                    'lookback_days': days
+                }
             
-            # Check resolved IPs
-            if resolved_ips:
-                # Parse resolved_ips if it's a JSON string
-                if isinstance(resolved_ips, str):
-                    try:
-                        resolved_ips = json.loads(resolved_ips)
-                    except (json.JSONDecodeError, TypeError):
-                        resolved_ips = []
+            logger.info(f"Found {len(dns_events)} DNS events to scan")
+            
+            alerts_created = 0
+            domains_checked = set()
+            ips_checked = set()
+            
+            # Get all existing alerts to avoid duplicates
+            try:
+                existing_alerts = self.db.get_threat_alerts(
+                    limit=10000,
+                    since=None,
+                    resolved=None
+                )
+            except Exception as e:
+                logger.warning(f"Error fetching existing alerts (continuing without duplicate check): {e}")
+                existing_alerts = []
+            
+            existing_alert_keys = set()
+            for alert in existing_alerts:
+                try:
+                    if alert.get('domain'):
+                        key = (alert.get('domain').lower(), alert.get('feed_name'), 'domain')
+                        existing_alert_keys.add(key)
+                    if alert.get('ip'):
+                        key = (alert.get('ip'), alert.get('feed_name'), 'ip')
+                        existing_alert_keys.add(key)
+                except Exception as e:
+                    logger.debug(f"Error processing alert for duplicate check: {e}")
+                    continue
+            
+            # Check each DNS event
+            for event in dns_events:
+                domain = event.get('domain')
+                resolved_ips = event.get('resolved_ips', [])
+                source_ip = event.get('source_ip', '')
+                query_type = event.get('query_type', 'A')
                 
-                if not isinstance(resolved_ips, list):
-                    resolved_ips = []
-                
-                for ip in resolved_ips:
-                    if not isinstance(ip, str):
-                        continue
-                    
-                    # Extract IP from "TYPE:data" format if needed
-                    original_ip = ip
-                    if ':' in ip and not any(ip.startswith(prefix + ':') for prefix in ['CNAME', 'NS', 'MX', 'TXT', 'SRV', 'SOA', 'PTR']):
-                        # Try to extract IP from string
-                        parts = ip.split(':')
-                        if len(parts) >= 2:
-                            try:
-                                ipaddress.ip_address(parts[0])
-                                ip = parts[0]
-                            except ValueError:
-                                continue
-                    
-                    # Validate it's an IP
-                    try:
-                        ipaddress.ip_address(ip)
-                    except ValueError:
-                        continue
-                    
-                    if ip not in ips_checked:
-                        ips_checked.add(ip)
+                # Check domain if not already processed
+                if domain:
+                    domain_key = domain.lower()
+                    if domain_key not in domains_checked:
+                        domains_checked.add(domain_key)
                         
                         # Skip if whitelisted
-                        if self.db.is_threat_whitelisted(ip=ip):
+                        if self.db.is_threat_whitelisted(domain=domain):
                             continue
                         
                         # Check for threat match
-                        threat_match = self.check_ip(ip)
+                        threat_match = self.check_domain(domain)
                         if threat_match:
                             feed_name = threat_match.get('feed_name', 'Unknown')
-                            alert_key = (ip, feed_name, 'ip')
+                            alert_key = (domain_key, feed_name, 'domain')
                             
                             # Check if alert already exists
                             if alert_key not in existing_alert_keys:
                                 try:
                                     self.create_alert(
                                         domain=domain,
-                                        ip=ip,
+                                        ip=None,
                                         query_type=query_type,
                                         source_ip=source_ip,
                                         threat_feed=feed_name,
-                                        indicator_type='ip'
+                                        indicator_type='domain'
                                     )
                                     existing_alert_keys.add(alert_key)
                                     alerts_created += 1
                                     if alerts_created % 100 == 0:
                                         logger.info(f"Created {alerts_created} alerts so far...")
                                 except Exception as e:
-                                    logger.debug(f"Error creating alert for IP {ip}: {e}")
-        
-        logger.info(f"Historical threat scan complete: {alerts_created} new alerts created")
-        return {
-            'success': True,
-            'events_scanned': len(dns_events),
-            'domains_checked': len(domains_checked),
-            'ips_checked': len(ips_checked),
-            'alerts_created': alerts_created,
-            'lookback_days': days
-        }
+                                    logger.debug(f"Error creating alert for domain {domain}: {e}")
+            
+                # Check resolved IPs
+                if resolved_ips:
+                    # Parse resolved_ips if it's a JSON string
+                    if isinstance(resolved_ips, str):
+                        try:
+                            resolved_ips = json.loads(resolved_ips)
+                        except (json.JSONDecodeError, TypeError):
+                            resolved_ips = []
+                    
+                    if not isinstance(resolved_ips, list):
+                        resolved_ips = []
+                    
+                    for ip in resolved_ips:
+                        if not isinstance(ip, str):
+                            continue
+                        
+                        # Extract IP from "TYPE:data" format if needed
+                        original_ip = ip
+                        if ':' in ip and not any(ip.startswith(prefix + ':') for prefix in ['CNAME', 'NS', 'MX', 'TXT', 'SRV', 'SOA', 'PTR']):
+                            # Try to extract IP from string
+                            parts = ip.split(':')
+                            if len(parts) >= 2:
+                                try:
+                                    ipaddress.ip_address(parts[0])
+                                    ip = parts[0]
+                                except ValueError:
+                                    continue
+                        
+                        # Validate it's an IP
+                        try:
+                            ipaddress.ip_address(ip)
+                        except ValueError:
+                            continue
+                        
+                        if ip not in ips_checked:
+                            ips_checked.add(ip)
+                            
+                            # Skip if whitelisted
+                            if self.db.is_threat_whitelisted(ip=ip):
+                                continue
+                            
+                            # Check for threat match
+                            threat_match = self.check_ip(ip)
+                            if threat_match:
+                                feed_name = threat_match.get('feed_name', 'Unknown')
+                                alert_key = (ip, feed_name, 'ip')
+                                
+                                # Check if alert already exists
+                                if alert_key not in existing_alert_keys:
+                                    try:
+                                        self.create_alert(
+                                            domain=domain,
+                                            ip=ip,
+                                            query_type=query_type,
+                                            source_ip=source_ip,
+                                            threat_feed=feed_name,
+                                            indicator_type='ip'
+                                        )
+                                        existing_alert_keys.add(alert_key)
+                                        alerts_created += 1
+                                        if alerts_created % 100 == 0:
+                                            logger.info(f"Created {alerts_created} alerts so far...")
+                                    except Exception as e:
+                                        logger.debug(f"Error creating alert for IP {ip}: {e}")
+            
+            logger.info(f"Historical threat scan complete: {alerts_created} new alerts created")
+            return {
+                'success': True,
+                'events_scanned': len(dns_events),
+                'domains_checked': len(domains_checked),
+                'ips_checked': len(ips_checked),
+                'alerts_created': alerts_created,
+                'lookback_days': days
+            }
+        except Exception as e:
+            logger.error(f"Error during historical threat scan: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': f"Unexpected error during scan: {str(e)}",
+                'events_scanned': 0,
+                'domains_checked': 0,
+                'ips_checked': 0,
+                'alerts_created': 0,
+                'lookback_days': days
+            }
 

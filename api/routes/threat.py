@@ -234,7 +234,16 @@ async def scan_historical_threats(
     try:
         manager = ThreatIntelligenceManager(db)
         result = manager.scan_historical_dns(days=days)
+        
+        # Check if the scan itself returned a failure
+        if not result.get('success', False):
+            error_msg = result.get('error', 'Unknown error during scan')
+            logger.error(f"Historical threat scan failed: {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
+        
         return ThreatScanResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error scanning historical threats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error scanning historical threats: {str(e)}")
