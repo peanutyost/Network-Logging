@@ -70,6 +70,7 @@ class AppConfig:
     capture: CaptureConfig = None
     log_level: str = "INFO"
     orphaned_ip_days: int = 7  # Days to look back for DNS match
+    threat_lookback_days: int = 30  # Days to look back for retrospective threat detection
     
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -79,6 +80,7 @@ class AppConfig:
             capture=CaptureConfig.from_env(),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
             orphaned_ip_days=int(os.getenv("ORPHANED_IP_DAYS", "7")),
+            threat_lookback_days=int(os.getenv("THREAT_LOOKBACK_DAYS", "30")),
         )
 
 

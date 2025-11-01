@@ -1,6 +1,6 @@
 """Threat hunting and analytics API routes."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 import logging
 
@@ -12,7 +12,10 @@ from api.models import (
     ThreatFeedUpdateRequest,
     ThreatFeedUpdateResponse,
     ThreatWhitelistEntry,
-    ThreatWhitelistAddRequest
+    ThreatWhitelistAddRequest,
+    ThreatScanResponse,
+    ThreatConfigResponse,
+    ThreatConfigUpdateRequest
 )
 from api.dependencies import get_db
 from api.auth import get_current_active_user, require_admin
@@ -196,4 +199,51 @@ async def remove_threat_whitelist(
     if not success:
         raise HTTPException(status_code=404, detail="Whitelist entry not found")
     return {"success": True, "message": "Whitelist entry removed"}
+
+
+@router.post("/scan-historical", response_model=ThreatScanResponse)
+async def scan_historical_threats(
+    days: int = 30,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Manually trigger a historical threat scan.
+    
+    Args:
+        days: Number of days to look back (default: 30, max: 365)
+    """
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="Days must be between 1 and 365")
+    
+    try:
+        manager = ThreatIntelligenceManager(db)
+        result = manager.scan_historical_dns(days=days)
+        return ThreatScanResponse(**result)
+    except Exception as e:
+        logger.error(f"Error scanning historical threats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error scanning historical threats: {str(e)}")
+
+
+@router.get("/config", response_model=ThreatConfigResponse)
+async def get_threat_config(
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Get threat detection configuration."""
+    from config import config
+    lookback_days = db.get_setting('threat_lookback_days', config.threat_lookback_days)
+    if lookback_days is None:
+        lookback_days = config.threat_lookback_days
+    return ThreatConfigResponse(lookback_days=int(lookback_days))
+
+
+@router.put("/config", response_model=ThreatConfigResponse)
+async def update_threat_config(
+    request: ThreatConfigUpdateRequest,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Update threat detection configuration."""
+    db.set_setting('threat_lookback_days', request.lookback_days)
+    return ThreatConfigResponse(lookback_days=request.lookback_days)
 

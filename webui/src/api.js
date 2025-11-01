@@ -227,6 +227,23 @@ export default {
   async removeThreatWhitelist(whitelistId) {
     const response = await api.delete(`/threat/whitelist/${whitelistId}`)
     return response.data
+  },
+
+  // Threat configuration
+  async getThreatConfig() {
+    const response = await api.get('/threat/config')
+    return response.data
+  },
+
+  async updateThreatConfig(lookbackDays) {
+    const response = await api.put('/threat/config', { lookback_days: lookbackDays })
+    return response.data
+  },
+
+  // Historical threat scan
+  async scanHistoricalThreats(days = 30) {
+    const response = await api.post(`/threat/scan-historical?days=${days}`)
+    return response.data
   }
 }
 

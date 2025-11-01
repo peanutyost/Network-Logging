@@ -403,4 +403,28 @@ class DatabaseBase(ABC):
             True if whitelisted, False otherwise
         """
         pass
+    
+    # Settings operations
+    @abstractmethod
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get an application setting.
+        
+        Args:
+            key: Setting key
+            default: Default value if setting doesn't exist
+            
+        Returns:
+            Setting value or default
+        """
+        pass
+    
+    @abstractmethod
+    def set_setting(self, key: str, value: Any) -> None:
+        """Set an application setting.
+        
+        Args:
+            key: Setting key
+            value: Setting value (will be JSON encoded)
+        """
+        pass
 

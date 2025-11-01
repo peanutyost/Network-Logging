@@ -2,6 +2,48 @@
   <div class="threat-feeds">
     <h1>Threat Intelligence Feeds</h1>
     
+    <!-- Configuration Section -->
+    <div class="config-section">
+      <h2>Threat Detection Settings</h2>
+      <div class="config-card">
+        <div class="config-row">
+          <label for="lookback-days">Historical Scan Lookback (days):</label>
+          <input 
+            id="lookback-days"
+            type="number" 
+            v-model.number="lookbackDays" 
+            min="1" 
+            max="365"
+            :disabled="savingConfig"
+            class="config-input"
+          />
+          <button 
+            @click="saveConfig" 
+            :disabled="savingConfig"
+            class="btn btn-primary"
+          >
+            {{ savingConfig ? 'Saving...' : 'Save' }}
+          </button>
+        </div>
+        <p class="config-help">
+          The system will automatically scan the past {{ lookbackDays }} days of DNS history daily 
+          to detect any visits to threat feed domains or IPs.
+        </p>
+        <div class="scan-controls">
+          <button 
+            @click="triggerScan" 
+            :disabled="scanning"
+            class="btn btn-secondary"
+          >
+            {{ scanning ? 'Scanning...' : 'Run Historical Scan Now' }}
+          </button>
+          <span v-if="lastScanResult" class="scan-result">
+            Last scan: {{ lastScanResult.alerts_created }} alerts from {{ lastScanResult.events_scanned }} events
+          </span>
+        </div>
+      </div>
+    </div>
+    
     <div class="feeds-container">
       <div v-if="loading" class="loading">Loading feeds...</div>
       
@@ -80,11 +122,16 @@ export default {
       loading: false,
       updating: null,
       toggling: null,
-      currentTimezone: getTimezone()
+      currentTimezone: getTimezone(),
+      lookbackDays: 30,
+      savingConfig: false,
+      scanning: false,
+      lastScanResult: null
     }
   },
   mounted() {
     this.loadFeeds()
+    this.loadConfig()
     window.addEventListener('timezone-changed', this.handleTimezoneChange)
   },
   beforeUnmount() {
@@ -143,6 +190,55 @@ export default {
     },
     formatDate(dateString) {
       return formatDateInTimezone(dateString, 'MMM dd, yyyy HH:mm:ss', this.currentTimezone)
+    },
+    async loadConfig() {
+      try {
+        const config = await api.getThreatConfig()
+        this.lookbackDays = config.lookback_days || 30
+      } catch (error) {
+        console.error('Error loading threat config:', error)
+      }
+    },
+    async saveConfig() {
+      if (this.lookbackDays < 1 || this.lookbackDays > 365) {
+        alert('Lookback days must be between 1 and 365')
+        return
+      }
+      this.savingConfig = true
+      try {
+        await api.updateThreatConfig(this.lookbackDays)
+        alert('Configuration saved successfully!')
+      } catch (error) {
+        console.error('Error saving config:', error)
+        alert('Error saving configuration. Please try again.')
+      } finally {
+        this.savingConfig = false
+      }
+    },
+    async triggerScan() {
+      if (this.scanning) return
+      this.scanning = true
+      this.lastScanResult = null
+      try {
+        const result = await api.scanHistoricalThreats(this.lookbackDays)
+        this.lastScanResult = result
+        if (result.success) {
+          alert(
+            `Historical scan complete!\n\n` +
+            `Events scanned: ${result.events_scanned.toLocaleString()}\n` +
+            `Domains checked: ${result.domains_checked.toLocaleString()}\n` +
+            `IPs checked: ${result.ips_checked.toLocaleString()}\n` +
+            `New alerts created: ${result.alerts_created.toLocaleString()}`
+          )
+        } else {
+          alert('Scan completed but may have encountered errors. Check logs for details.')
+        }
+      } catch (error) {
+        console.error('Error triggering scan:', error)
+        alert('Error running historical scan. Please try again.')
+      } finally {
+        this.scanning = false
+      }
     }
   }
 }
@@ -167,6 +263,100 @@ export default {
   text-align: center;
   padding: 3rem;
   color: #666;
+}
+
+.config-section {
+  margin-bottom: 2rem;
+}
+
+.config-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.config-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.config-row label {
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+}
+
+.config-input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  width: 100px;
+}
+
+.config-input:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.config-help {
+  color: #666;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.scan-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.scan-result {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #545b62;
 }
 
 .feeds-list {

@@ -556,6 +556,17 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_whitelist_ip ON threat_whitelist(ip) WHERE ip IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_type ON threat_whitelist(indicator_type)")
                 
+                # Settings table (application configuration)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS settings (
+                        id SERIAL PRIMARY KEY,
+                        key VARCHAR(255) NOT NULL UNIQUE,
+                        value TEXT NOT NULL,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key)")
+                
                 conn.commit()
                 logger.info("Database tables created successfully")
         except Exception as e:
@@ -1582,6 +1593,54 @@ class PostgreSQLDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error checking threat whitelist: {e}")
             return False
+        finally:
+            self._return_connection(conn)
+    
+    # Settings operations
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get an application setting."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM settings WHERE key = %s", (key,))
+                result = cur.fetchone()
+                if result:
+                    try:
+                        # Try to parse as JSON
+                        return json.loads(result[0])
+                    except (json.JSONDecodeError, TypeError):
+                        # Return as string if not JSON
+                        return result[0]
+                return default
+        except Exception as e:
+            logger.error(f"Error getting setting {key}: {e}")
+            return default
+        finally:
+            self._return_connection(conn)
+    
+    def set_setting(self, key: str, value: Any) -> None:
+        """Set an application setting."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Convert value to JSON string if not already a string
+                if not isinstance(value, str):
+                    value_str = json.dumps(value)
+                else:
+                    value_str = value
+                
+                cur.execute("""
+                    INSERT INTO settings (key, value, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (key, value_str))
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error setting {key}: {e}")
+            raise
         finally:
             self._return_connection(conn)
 

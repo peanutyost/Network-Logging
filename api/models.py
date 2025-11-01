@@ -225,3 +225,23 @@ class ThreatWhitelistAddRequest(BaseModel):
     domain: Optional[str] = None
     ip: Optional[str] = None
     reason: Optional[str] = None
+
+
+class ThreatScanResponse(BaseModel):
+    """Response from historical threat scan."""
+    success: bool
+    events_scanned: int
+    domains_checked: int
+    ips_checked: int
+    alerts_created: int
+    lookback_days: int
+
+
+class ThreatConfigResponse(BaseModel):
+    """Threat detection configuration."""
+    lookback_days: int
+
+
+class ThreatConfigUpdateRequest(BaseModel):
+    """Request to update threat detection configuration."""
+    lookback_days: int = Field(..., ge=1, le=365)

@@ -23,18 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 class ThreatFeedScheduler:
-    """Scheduler for updating threat intelligence feeds."""
+    """Scheduler for updating threat intelligence feeds and scanning historical data."""
     
-    def __init__(self, threat_intel_manager: ThreatIntelligenceManager):
+    def __init__(self, threat_intel_manager: ThreatIntelligenceManager, lookback_days: int = 30):
         """Initialize scheduler.
         
         Args:
             threat_intel_manager: Threat intelligence manager instance
+            lookback_days: Number of days to look back for historical threat scanning
         """
         self.threat_intel_manager = threat_intel_manager
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.update_interval_hours = 24  # Update feeds daily
+        self.lookback_days = lookback_days
     
     def start(self):
         """Start the scheduler."""
@@ -61,11 +63,21 @@ class ThreatFeedScheduler:
         # Update all feeds immediately on startup
         self._update_all_feeds()
         
+        # Run historical scan after initial feed update (wait a bit more)
+        time.sleep(60)  # Wait 1 minute after feed update
+        if self.running:
+            self._scan_historical_threats()
+        
         # Then update daily
         while self.running:
             time.sleep(self.update_interval_hours * 3600)  # Wait 24 hours
             if self.running:
+                # Update feeds first
                 self._update_all_feeds()
+                # Wait a bit, then scan historical data
+                time.sleep(300)  # Wait 5 minutes after feed update
+                if self.running:
+                    self._scan_historical_threats()
     
     def _update_all_feeds(self):
         """Update all enabled threat feeds."""
@@ -86,6 +98,23 @@ class ThreatFeedScheduler:
                         logger.error(f"Failed to update {feed_name}: {result.get('error')}")
                 except Exception as e:
                     logger.error(f"Error updating feed {feed_name}: {e}", exc_info=True)
+    
+    def _scan_historical_threats(self):
+        """Scan historical DNS data for threat matches."""
+        try:
+            # Get current lookback days from database settings
+            lookback_days = self.threat_intel_manager.db.get_setting('threat_lookback_days', self.lookback_days)
+            if lookback_days is None:
+                lookback_days = self.lookback_days
+            
+            logger.info(f"Starting daily historical threat scan (looking back {lookback_days} days)...")
+            result = self.threat_intel_manager.scan_historical_dns(days=int(lookback_days))
+            if result.get('success'):
+                logger.info(f"Historical scan complete: {result.get('alerts_created', 0)} new alerts from {result.get('events_scanned', 0)} events")
+            else:
+                logger.error("Historical threat scan failed")
+        except Exception as e:
+            logger.error(f"Error during historical threat scan: {e}", exc_info=True)
 
 
 class NetworkMonitor:
@@ -100,8 +129,19 @@ class NetworkMonitor:
         db.connect()
         db.create_tables()
         
+        # Get lookback days from settings or use default
+        lookback_days = db.get_setting('threat_lookback_days', config.threat_lookback_days)
+        if lookback_days is None:
+            lookback_days = config.threat_lookback_days
+        
         self.threat_intel_manager = ThreatIntelligenceManager(db)
-        self.threat_scheduler = ThreatFeedScheduler(self.threat_intel_manager)
+        self.threat_scheduler = ThreatFeedScheduler(
+            self.threat_intel_manager,
+            lookback_days=int(lookback_days)
+        )
+        
+        # Update scheduler lookback_days if it changes in settings
+        # (for runtime updates - scheduler reads from settings each time)
         
         # Initialize components
         self.dns_logger = DNSLogger(threat_intel_manager=self.threat_intel_manager)

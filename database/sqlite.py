@@ -240,6 +240,17 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_type ON threat_whitelist(indicator_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_domain ON threat_whitelist(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_whitelist_ip ON threat_whitelist(ip)")
+            
+            # Settings table (application configuration)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL UNIQUE,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key)")
 
             self.conn.commit()
             logger.info("Database tables created successfully")
@@ -1261,4 +1272,49 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error checking threat whitelist: {e}")
             return False
+    
+    # Settings operations
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get an application setting."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                try:
+                    # Try to parse as JSON
+                    return json.loads(row[0])
+                except (json.JSONDecodeError, TypeError):
+                    # Return as string if not JSON
+                    return row[0]
+            return default
+        except Exception as e:
+            logger.error(f"Error getting setting {key}: {e}")
+            return default
+    
+    def set_setting(self, key: str, value: Any) -> None:
+        """Set an application setting."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            # Convert value to JSON string if not already a string
+            if not isinstance(value, str):
+                value_str = json.dumps(value)
+            else:
+                value_str = value
+            
+            cursor.execute("""
+                INSERT INTO settings (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (key, value_str))
+            self.conn.commit()
+        except Exception as e:
+            logger.error(f"Error setting {key}: {e}")
+            raise
 
