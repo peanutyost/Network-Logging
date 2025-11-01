@@ -213,10 +213,30 @@ class PostgreSQLDatabase(DatabaseBase):
                         last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                # Create unique index to ensure no duplicates per feed/type/indicator
+                # Add ip column if it doesn't exist (for migrations)
                 cur.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_ind_unique 
-                    ON threat_indicators (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip::text, ''))
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='ip'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN ip INET;
+                        END IF;
+                    END $$;
+                """)
+                # Drop index if it exists (in case we need to recreate it)
+                cur.execute("DROP INDEX IF EXISTS idx_threat_ind_unique")
+                # Create unique index to ensure no duplicates per feed/type/indicator
+                # Use COALESCE with explicit text casting for the index
+                cur.execute("""
+                    CREATE UNIQUE INDEX idx_threat_ind_unique 
+                    ON threat_indicators (
+                        feed_name, 
+                        indicator_type, 
+                        COALESCE(domain, ''), 
+                        COALESCE(CAST(ip AS TEXT), '')
+                    )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_feed ON threat_indicators(feed_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_ind_type ON threat_indicators(indicator_type)")
