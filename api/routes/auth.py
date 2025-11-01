@@ -84,6 +84,13 @@ async def register(
     test_verify = verify_password(user_data.password, hashed_password)
     logger.debug(f"Password hash created for user {user_data.username}, verification test: {test_verify}")
     
+    # Check if this is the first user - make them admin automatically
+    all_users = db.get_all_users(limit=1)
+    is_first_user = len(all_users) == 0
+    if is_first_user:
+        logger.info(f"First user registered: {user_data.username} - automatically granting admin privileges")
+        user_data.is_admin = True
+    
     try:
         user_id = db.create_user(
             username=user_data.username,
