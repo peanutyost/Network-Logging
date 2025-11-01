@@ -198,6 +198,70 @@ class PostgreSQLDatabase(DatabaseBase):
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # Migrate columns if they don't exist (for existing databases)
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='feed_name'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN feed_name VARCHAR(255) NOT NULL DEFAULT 'Unknown';
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_threat_feeds_name_unique ON threat_feeds(feed_name);
+                            ALTER TABLE threat_feeds ALTER COLUMN feed_name DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='source_url'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN source_url TEXT NOT NULL DEFAULT '';
+                            ALTER TABLE threat_feeds ALTER COLUMN source_url DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='enabled'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT TRUE;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='last_update'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN last_update TIMESTAMP;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='indicator_count'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN indicator_count INTEGER NOT NULL DEFAULT 0;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='last_error'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN last_error TEXT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='created_at'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='updated_at'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                    END $$;
+                """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_name ON threat_feeds(feed_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_enabled ON threat_feeds(enabled)")
                 
@@ -213,15 +277,58 @@ class PostgreSQLDatabase(DatabaseBase):
                         last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                # Add ip column if it doesn't exist (for migrations)
+                # Migrate columns if they don't exist (for existing databases)
                 cur.execute("""
                     DO $$ 
                     BEGIN 
+                        -- Add feed_name if missing
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='feed_name'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN feed_name VARCHAR(255) NOT NULL DEFAULT 'Unknown';
+                            ALTER TABLE threat_indicators ALTER COLUMN feed_name DROP DEFAULT;
+                        END IF;
+                        
+                        -- Add indicator_type if missing
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='indicator_type'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN indicator_type VARCHAR(10) NOT NULL DEFAULT 'domain';
+                            ALTER TABLE threat_indicators ALTER COLUMN indicator_type DROP DEFAULT;
+                        END IF;
+                        
+                        -- Add domain if missing
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='domain'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN domain VARCHAR(255);
+                        END IF;
+                        
+                        -- Add ip if missing
                         IF NOT EXISTS (
                             SELECT 1 FROM information_schema.columns 
                             WHERE table_name='threat_indicators' AND column_name='ip'
                         ) THEN
                             ALTER TABLE threat_indicators ADD COLUMN ip INET;
+                        END IF;
+                        
+                        -- Add first_seen if missing
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='first_seen'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                        
+                        -- Add last_seen if missing
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='last_seen'
+                        ) THEN
+                            ALTER TABLE threat_indicators ADD COLUMN last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
                         END IF;
                     END $$;
                 """)
@@ -258,6 +365,85 @@ class PostgreSQLDatabase(DatabaseBase):
                         resolved_by INTEGER,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
+                """)
+                # Migrate columns if they don't exist (for existing databases)
+                cur.execute("""
+                    DO $$ 
+                    BEGIN 
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='feed_name'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN feed_name VARCHAR(255) NOT NULL DEFAULT 'Unknown';
+                            ALTER TABLE threat_alerts ALTER COLUMN feed_name DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='indicator_type'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN indicator_type VARCHAR(10) NOT NULL DEFAULT 'domain';
+                            ALTER TABLE threat_alerts ALTER COLUMN indicator_type DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='domain'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN domain VARCHAR(255);
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='ip'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN ip INET;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='query_type'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN query_type VARCHAR(10) NOT NULL DEFAULT 'A';
+                            ALTER TABLE threat_alerts ALTER COLUMN query_type DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='source_ip'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN source_ip INET NOT NULL DEFAULT '0.0.0.0';
+                            ALTER TABLE threat_alerts ALTER COLUMN source_ip DROP DEFAULT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='resolved'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN resolved BOOLEAN NOT NULL DEFAULT FALSE;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='resolved_at'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN resolved_at TIMESTAMP;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='resolved_by'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN resolved_by INTEGER;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_alerts' AND column_name='created_at'
+                        ) THEN
+                            ALTER TABLE threat_alerts ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                    END $$;
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_feed ON threat_alerts(feed_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_threat_alerts_resolved ON threat_alerts(resolved)")
