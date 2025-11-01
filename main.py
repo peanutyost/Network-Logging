@@ -91,9 +91,12 @@ class ThreatFeedScheduler:
             if feed_name in self.threat_intel_manager.feeds:
                 try:
                     logger.info(f"Updating threat feed: {feed_name}")
-                    result = self.threat_intel_manager.update_feed(feed_name)
+                    result = self.threat_intel_manager.update_feed(feed_name, force=False)
                     if result.get('success'):
                         logger.info(f"Successfully updated {feed_name}: {result.get('indicator_count', 0)} indicators")
+                    elif result.get('throttled'):
+                        # Throttled - this is expected, just log at debug level
+                        logger.debug(f"Skipping update for {feed_name}: {result.get('error')}")
                     else:
                         logger.error(f"Failed to update {feed_name}: {result.get('error')}")
                 except Exception as e:

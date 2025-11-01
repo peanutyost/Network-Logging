@@ -55,14 +55,30 @@ async def get_threat_feeds(
 @router.post("/feeds/{feed_name}/update", response_model=ThreatFeedUpdateResponse)
 async def update_threat_feed(
     feed_name: str,
+    force: bool = False,
     db: DatabaseBase = Depends(get_db),
     current_user: dict = Depends(require_admin)
 ):
-    """Manually trigger update of a threat intelligence feed."""
+    """Manually trigger update of a threat intelligence feed.
+    
+    Args:
+        feed_name: Name of the feed to update
+        force: If True, bypass the 3-hour minimum update interval (admin only)
+    """
     try:
         manager = ThreatIntelligenceManager(db)
-        result = manager.update_feed(feed_name)
+        result = manager.update_feed(feed_name, force=force)
+        
+        # If throttled, return 429 Too Many Requests
+        if result.get('throttled'):
+            raise HTTPException(
+                status_code=429,
+                detail=result.get('error', 'Feed update throttled. Minimum 3 hours required between updates.')
+            )
+        
         return ThreatFeedUpdateResponse(**result)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

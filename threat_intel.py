@@ -314,17 +314,48 @@ class ThreatIntelligenceManager:
         except Exception as e:
             logger.warning(f"Error initializing feed metadata for {feed.name}: {e}")
     
-    def update_feed(self, feed_name: str) -> Dict[str, Any]:
+    def update_feed(self, feed_name: str, force: bool = False) -> Dict[str, Any]:
         """Download and update a specific threat feed.
         
         Args:
             feed_name: Name of the feed to update
+            force: If True, bypass the 3-hour minimum update interval check
             
         Returns:
             Dictionary with update results
         """
         if feed_name not in self.feeds:
             raise ValueError(f"Feed '{feed_name}' not found")
+        
+        # Check if feed was updated recently (minimum 3 hours between updates)
+        if not force:
+            feed_metadata = self.db.get_threat_feeds()
+            feed_info = next((f for f in feed_metadata if f['feed_name'] == feed_name), None)
+            if feed_info and feed_info.get('last_update'):
+                from datetime import datetime, timedelta
+                last_update = feed_info['last_update']
+                # Parse last_update if it's a string
+                if isinstance(last_update, str):
+                    try:
+                        last_update = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+                        # Convert to naive datetime if timezone-aware
+                        if last_update.tzinfo:
+                            last_update = last_update.replace(tzinfo=None)
+                    except (ValueError, AttributeError):
+                        # If parsing fails, allow update (better to update than skip)
+                        pass
+                
+                if isinstance(last_update, datetime):
+                    time_since_update = datetime.utcnow() - last_update
+                    if time_since_update < timedelta(hours=3):
+                        hours_remaining = (timedelta(hours=3) - time_since_update).total_seconds() / 3600
+                        logger.info(f"Feed '{feed_name}' was updated {time_since_update.total_seconds() / 60:.1f} minutes ago. Minimum 3 hours required. {hours_remaining:.1f} hours remaining.")
+                        return {
+                            'success': False,
+                            'error': f"Feed was updated recently. Minimum 3 hours required between updates. {hours_remaining:.1f} hours remaining.",
+                            'feed': feed_name,
+                            'throttled': True
+                        }
         
         feed = self.feeds[feed_name]
         content = feed.download()

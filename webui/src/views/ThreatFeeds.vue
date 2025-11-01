@@ -171,10 +171,10 @@ export default {
         this.toggling = null
       }
     },
-    async updateFeed(feedName) {
+    async updateFeed(feedName, force = false) {
       this.updating = feedName
       try {
-        const result = await api.updateThreatFeed(feedName)
+        const result = await api.updateThreatFeed(feedName, force)
         if (result.success) {
           alert(`Feed updated successfully!\n\nDomains: ${result.domains || 0}\nIPs: ${result.ips || 0}\nTotal Indicators: ${result.indicator_count || 0}`)
           this.loadFeeds() // Refresh feeds
@@ -183,7 +183,20 @@ export default {
         }
       } catch (error) {
         console.error('Error updating feed:', error)
-        alert('Error updating feed. Please try again.')
+        if (error.response && error.response.status === 429) {
+          // Throttled - ask user if they want to force update
+          const forceUpdate = confirm(
+            `${error.response.data?.detail || 'Feed was updated recently. Minimum 3 hours required between updates.'}\n\n` +
+            'Do you want to force update anyway?'
+          )
+          if (forceUpdate) {
+            // Retry with force flag
+            this.updateFeed(feedName, true)
+            return
+          }
+        } else {
+          alert('Error updating feed. Please try again.')
+        }
       } finally {
         this.updating = null
       }

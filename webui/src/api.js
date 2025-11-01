@@ -188,8 +188,9 @@ export default {
     return response.data
   },
 
-  async updateThreatFeed(feedName) {
-    const response = await api.post(`/threat/feeds/${feedName}/update`)
+  async updateThreatFeed(feedName, force = false) {
+    const params = force ? '?force=true' : ''
+    const response = await api.post(`/threat/feeds/${feedName}/update${params}`)
     return response.data
   },
 
