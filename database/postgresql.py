@@ -330,8 +330,48 @@ class PostgreSQLDatabase(DatabaseBase):
                         ) THEN
                             ALTER TABLE threat_indicators ADD COLUMN last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
                         END IF;
+                        
+                        -- Remove old columns that are no longer used
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='severity'
+                        ) THEN
+                            ALTER TABLE threat_indicators DROP COLUMN severity;
+                        END IF;
+                        
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='source_ip'
+                        ) THEN
+                            ALTER TABLE threat_indicators DROP COLUMN source_ip;
+                        END IF;
+                        
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='destination_ip'
+                        ) THEN
+                            ALTER TABLE threat_indicators DROP COLUMN destination_ip;
+                        END IF;
+                        
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='description'
+                        ) THEN
+                            ALTER TABLE threat_indicators DROP COLUMN description;
+                        END IF;
+                        
+                        IF EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_indicators' AND column_name='detected_at'
+                        ) THEN
+                            ALTER TABLE threat_indicators DROP COLUMN detected_at;
+                        END IF;
                     END $$;
                 """)
+                # Drop old indexes that reference removed columns
+                cur.execute("DROP INDEX IF EXISTS idx_threat_type")
+                cur.execute("DROP INDEX IF EXISTS idx_threat_severity")
+                cur.execute("DROP INDEX IF EXISTS idx_threat_detected")
                 # Drop index if it exists (in case we need to recreate it)
                 cur.execute("DROP INDEX IF EXISTS idx_threat_ind_unique")
                 # Create unique index to ensure no duplicates per feed/type/indicator
