@@ -15,9 +15,14 @@
       </label>
       <button @click="loadData" class="refresh-button">Refresh</button>
       <button @click="exportCSV" class="export-button">Export CSV</button>
-      <button @click="excludeRfc1918" class="rfc1918-button" :disabled="excludingRfc1918">
-        {{ excludingRfc1918 ? 'Excluding...' : 'Exclude RFC 1918 IPs' }}
-      </button>
+      <label class="filter-checkbox">
+        <input
+          type="checkbox"
+          v-model="filterRfc1918"
+          @change="applyFilter"
+        />
+        Filter RFC 1918 IPs
+      </label>
     </div>
 
     <div v-if="loading" class="loading">Loading orphaned IPs...</div>
@@ -42,7 +47,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="ip in orphanedIPs" :key="ip.destination_ip">
+          <tr v-for="ip in filteredOrphanedIPs" :key="ip.destination_ip">
             <td>{{ ip.destination_ip }}</td>
             <td>{{ formatBytes(ip.total_bytes) }}</td>
             <td>{{ formatBytes(ip.total_bytes_sent) }}</td>
@@ -55,8 +60,13 @@
         </tbody>
       </table>
       
-      <div v-if="orphanedIPs.length === 0" class="no-data">
-        No orphaned IPs found in the last {{ days }} days.
+      <div v-if="filteredOrphanedIPs.length === 0" class="no-data">
+        <span v-if="orphanedIPs.length === 0">
+          No orphaned IPs found in the last {{ days }} days.
+        </span>
+        <span v-else>
+          No orphaned IPs found after filtering ({{ orphanedIPs.length }} total IPs).
+        </span>
       </div>
     </div>
   </div>
@@ -74,7 +84,7 @@ export default {
       loading: false,
       days: 7,
       currentTimezone: getTimezone(),
-      excludingRfc1918: false
+      filterRfc1918: false
     }
   },
   mounted() {
@@ -100,10 +110,10 @@ export default {
       }
     },
     exportCSV() {
-      if (this.orphanedIPs.length === 0) return
+      if (this.filteredOrphanedIPs.length === 0) return
       
       const headers = ['Destination IP', 'Total Bytes', 'Bytes Sent', 'Bytes Received', 'Packets', 'Connections', 'First Seen', 'Last Seen']
-      const rows = this.orphanedIPs.map(ip => [
+      const rows = this.filteredOrphanedIPs.map(ip => [
         ip.destination_ip,
         ip.total_bytes,
         ip.total_bytes_sent,
@@ -119,7 +129,8 @@ export default {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `orphaned-ips-${new Date().toISOString().split('T')[0]}.csv`
+      const filterSuffix = this.filterRfc1918 ? '-filtered' : ''
+      a.download = `orphaned-ips-${new Date().toISOString().split('T')[0]}${filterSuffix}.csv`
       a.click()
       window.URL.revokeObjectURL(url)
     },
@@ -136,23 +147,50 @@ export default {
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
       return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     },
-    async excludeRfc1918() {
-      this.excludingRfc1918 = true
+    isRfc1918(ip) {
+      if (!ip) return false
       try {
-        const result = await api.addRfc1918Whitelist()
-        alert(
-          `RFC 1918 IPs excluded!\n\n` +
-          `${result.message}\n\n` +
-          `Note: Private IP addresses (RFC 1918) are automatically excluded from threat alerts.\n` +
-          `This action adds them to the whitelist for visibility.`
-        )
-      } catch (error) {
-        console.error('Error excluding RFC 1918:', error)
-        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-        alert(`Error excluding RFC 1918 IPs: ${errorMsg}`)
-      } finally {
-        this.excludingRfc1918 = false
+        // Simple regex check for RFC 1918 IPv4 ranges
+        // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+        const ipStr = String(ip).trim()
+        
+        // Check 10.0.0.0/8
+        if (ipStr.startsWith('10.')) return true
+        
+        // Check 192.168.0.0/16
+        if (ipStr.startsWith('192.168.')) return true
+        
+        // Check 172.16.0.0/12 (172.16.0.0 to 172.31.255.255)
+        if (ipStr.startsWith('172.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 2) {
+            const secondOctet = parseInt(parts[1], 10)
+            if (secondOctet >= 16 && secondOctet <= 31) {
+              return true
+            }
+          }
+        }
+        
+        // Also check loopback (127.0.0.0/8) and link-local (169.254.0.0/16)
+        if (ipStr.startsWith('127.')) return true
+        if (ipStr.startsWith('169.254.')) return true
+        
+        return false
+      } catch (e) {
+        return false
       }
+    },
+    applyFilter() {
+      // Filter is applied via computed property
+      this.$forceUpdate()
+    }
+  },
+  computed: {
+    filteredOrphanedIPs() {
+      if (!this.filterRfc1918) {
+        return this.orphanedIPs
+      }
+      return this.orphanedIPs.filter(ip => !this.isRfc1918(ip.destination_ip))
     }
   }
 }
@@ -176,6 +214,23 @@ export default {
   gap: 0.5rem;
 }
 
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  padding: 0.5rem 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
 .controls input[type="number"] {
   padding: 0.5rem;
   border: 1px solid #ddd;
@@ -184,8 +239,7 @@ export default {
 }
 
 .refresh-button,
-.export-button,
-.rfc1918-button {
+.export-button {
   padding: 0.5rem 1.5rem;
   border: none;
   border-radius: 4px;
@@ -201,20 +255,6 @@ export default {
 .export-button {
   background-color: #27ae60;
   color: white;
-}
-
-.rfc1918-button {
-  background-color: #3498db;
-  color: white;
-}
-
-.rfc1918-button:disabled {
-  background-color: #95a5a6;
-  cursor: not-allowed;
-}
-
-.rfc1918-button:hover:not(:disabled) {
-  background-color: #2980b9;
 }
 
 .orphaned-ips {
