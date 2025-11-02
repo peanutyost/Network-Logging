@@ -171,32 +171,72 @@ async def update_feed_config(
             if level < 1 or level > 8:
                 raise HTTPException(status_code=400, detail="IPsum level must be between 1 and 8")
             
+            # Find all existing IPsum feeds (there should only be one, but handle duplicates)
+            all_feeds = db.get_threat_feeds()
+            ipsum_feeds = [f for f in all_feeds if f['feed_name'].startswith('IPsum-L')]
+            
             # Update the feed instance and re-register with new level
             manager = ThreatIntelligenceManager(db)
-            # Remove old feed instance if it exists
-            old_feed_name = feed_name
-            if old_feed_name in manager.feeds:
-                del manager.feeds[old_feed_name]
+            
+            # Remove all IPsum feed instances from manager
+            for ipsum_feed in ipsum_feeds:
+                old_name = ipsum_feed['feed_name']
+                if old_name in manager.feeds:
+                    del manager.feeds[old_name]
             
             # Create new feed instance with updated level
             from threat_intel import IpsumFeed
             new_feed = IpsumFeed(level=level)
             manager.register_feed(new_feed)
             
-            # Update database metadata with new feed name
+            # Delete all old IPsum feeds from database (including indicators)
+            # This ensures we don't have duplicates when level changes
+            for ipsum_feed in ipsum_feeds:
+                old_feed_name = ipsum_feed['feed_name']
+                # Delete indicators and feed entry
+                try:
+                    # Try PostgreSQL-style first
+                    if hasattr(db, '_get_connection'):
+                        conn = db._get_connection()
+                        try:
+                            with conn.cursor() as cur:
+                                cur.execute("DELETE FROM threat_indicators WHERE feed_name = %s", (old_feed_name,))
+                                cur.execute("DELETE FROM threat_feeds WHERE feed_name = %s", (old_feed_name,))
+                                conn.commit()
+                        except Exception as e:
+                            conn.rollback()
+                            logger.error(f"Error deleting old IPsum feed {old_feed_name}: {e}")
+                        finally:
+                            db._return_connection(conn)
+                    # Try SQLite-style
+                    elif hasattr(db, 'conn'):
+                        if not db.conn:
+                            db.connect()
+                        try:
+                            cursor = db.conn.cursor()
+                            cursor.execute("DELETE FROM threat_indicators WHERE feed_name = ?", (old_feed_name,))
+                            cursor.execute("DELETE FROM threat_feeds WHERE feed_name = ?", (old_feed_name,))
+                            db.conn.commit()
+                        except Exception as e:
+                            logger.error(f"Error deleting old IPsum feed {old_feed_name}: {e}")
+                    else:
+                        logger.warning(f"Unable to delete old IPsum feed {old_feed_name}: unknown database type")
+                except Exception as e:
+                    logger.error(f"Error deleting old IPsum feed {old_feed_name}: {e}")
+            
+            # Create the new feed entry with preserved settings from the current feed
             db.update_threat_feed_metadata(
                 feed_name=new_feed.name,
-                last_update=feed_info.get('last_update'),
-                indicator_count=feed_info.get('indicator_count', 0),
+                last_update=None,  # Reset update time since level changed
+                indicator_count=0,  # Reset count - needs new update
                 source_url=new_feed.url,
                 enabled=feed_info.get('enabled', True),
-                error=feed_info.get('last_error'),
+                error=None,  # Clear any errors
                 homepage=new_feed.homepage,
                 config={'level': level}
             )
             
-            # Note: When level changes, feed name changes (IPsum-L1 -> IPsum-L2)
-            # Old indicators and alerts remain associated with old feed name
+            return {"success": True, "feed_name": new_feed.name, "message": f"IPsum feed updated to level {level}. Please update the feed to download new indicators."}
         
         return {"success": True, "feed_name": feed_name, "message": "Configuration updated"}
     except HTTPException:

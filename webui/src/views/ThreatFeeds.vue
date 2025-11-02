@@ -231,10 +231,23 @@ export default {
         return
       }
       
+      // Confirm before changing level (this will delete old IPsum feeds)
+      const confirmChange = confirm(
+        `Changing IPsum to level ${newLevel} will:\n\n` +
+        `- Remove all existing IPsum feeds (including duplicates)\n` +
+        `- Create a new feed at level ${newLevel}\n` +
+        `- Clear all existing indicators (you'll need to update the feed)\n\n` +
+        `Continue?`
+      )
+      if (!confirmChange) {
+        this.loadFeeds() // Reload to reset UI
+        return
+      }
+      
       this.toggling = feedName
       try {
-        await api.updateFeedConfig(feedName, { level: newLevel })
-        alert(`IPsum level updated to ${newLevel}. Please update the feed to apply changes.`)
+        const result = await api.updateFeedConfig(feedName, { level: newLevel })
+        alert(result.message || `IPsum level updated to ${newLevel}. Please update the feed to download new indicators.`)
         this.loadFeeds() // Refresh to show updated feed name
       } catch (error) {
         console.error('Error updating ipsum level:', error)
