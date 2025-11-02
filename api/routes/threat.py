@@ -1,6 +1,6 @@
 """Threat hunting and analytics API routes."""
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from datetime import datetime
 import logging
 
@@ -148,6 +148,62 @@ async def toggle_threat_feed(
     except Exception as e:
         logger.error(f"Error toggling threat feed {feed_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error toggling feed: {str(e)}")
+
+
+@router.put("/feeds/{feed_name}/config")
+async def update_feed_config(
+    feed_name: str,
+    config: Dict[str, Any],
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Update feed configuration (e.g., level for ipsum feed)."""
+    try:
+        # Get current feed info
+        feeds = db.get_threat_feeds()
+        feed_info = next((f for f in feeds if f['feed_name'] == feed_name), None)
+        if not feed_info:
+            raise HTTPException(status_code=404, detail=f"Feed '{feed_name}' not found")
+        
+        # Validate and update config for ipsum feed
+        if feed_name.startswith('IPsum-L') and 'level' in config:
+            level = config['level']
+            if level < 1 or level > 8:
+                raise HTTPException(status_code=400, detail="IPsum level must be between 1 and 8")
+            
+            # Update the feed instance and re-register with new level
+            manager = ThreatIntelligenceManager(db)
+            # Remove old feed instance if it exists
+            old_feed_name = feed_name
+            if old_feed_name in manager.feeds:
+                del manager.feeds[old_feed_name]
+            
+            # Create new feed instance with updated level
+            from threat_intel import IpsumFeed
+            new_feed = IpsumFeed(level=level)
+            manager.register_feed(new_feed)
+            
+            # Update database metadata with new feed name
+            db.update_threat_feed_metadata(
+                feed_name=new_feed.name,
+                last_update=feed_info.get('last_update'),
+                indicator_count=feed_info.get('indicator_count', 0),
+                source_url=new_feed.url,
+                enabled=feed_info.get('enabled', True),
+                error=feed_info.get('last_error'),
+                homepage=new_feed.homepage,
+                config={'level': level}
+            )
+            
+            # Note: When level changes, feed name changes (IPsum-L1 -> IPsum-L2)
+            # Old indicators and alerts remain associated with old feed name
+        
+        return {"success": True, "feed_name": feed_name, "message": "Configuration updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating feed config: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating feed config: {str(e)}")
 
 
 @router.get("/whitelist", response_model=List[ThreatWhitelistEntry])

@@ -194,6 +194,8 @@ class PostgreSQLDatabase(DatabaseBase):
                         last_update TIMESTAMP,
                         indicator_count INTEGER NOT NULL DEFAULT 0,
                         last_error TEXT,
+                        homepage TEXT,
+                        config JSONB,
                         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                     )
@@ -259,6 +261,20 @@ class PostgreSQLDatabase(DatabaseBase):
                             WHERE table_name='threat_feeds' AND column_name='updated_at'
                         ) THEN
                             ALTER TABLE threat_feeds ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='homepage'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN homepage TEXT;
+                        END IF;
+                        
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns 
+                            WHERE table_name='threat_feeds' AND column_name='config'
+                        ) THEN
+                            ALTER TABLE threat_feeds ADD COLUMN config JSONB;
                         END IF;
                     END $$;
                 """)
@@ -1376,10 +1392,23 @@ class PostgreSQLDatabase(DatabaseBase):
         """Get list of threat feeds."""
         conn = self._get_connection()
         try:
+            import json
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT * FROM threat_feeds ORDER BY feed_name")
                 rows = cur.fetchall()
-                return [dict(r) for r in rows]
+                result = []
+                for row in rows:
+                    feed_dict = dict(row)
+                    # Parse config JSON if present
+                    if feed_dict.get('config') and isinstance(feed_dict['config'], str):
+                        try:
+                            feed_dict['config'] = json.loads(feed_dict['config'])
+                        except (json.JSONDecodeError, TypeError):
+                            feed_dict['config'] = None
+                    elif feed_dict.get('config') is None:
+                        feed_dict['config'] = None
+                    result.append(feed_dict)
+                return result
         except Exception as e:
             logger.error(f"Error getting threat feeds: {e}")
             return []
@@ -1389,27 +1418,33 @@ class PostgreSQLDatabase(DatabaseBase):
     def update_threat_feed_metadata(
         self,
         feed_name: str,
-        last_update: datetime,
+        last_update: Optional[datetime],
         indicator_count: int,
         source_url: str,
         enabled: bool = True,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        homepage: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None
     ) -> None:
         """Update threat feed metadata."""
         conn = self._get_connection()
         try:
+            import json
+            config_json = json.dumps(config) if config else None
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, homepage, config, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (feed_name) DO UPDATE SET
                         source_url = EXCLUDED.source_url,
                         enabled = EXCLUDED.enabled,
                         last_update = EXCLUDED.last_update,
                         indicator_count = EXCLUDED.indicator_count,
                         last_error = EXCLUDED.last_error,
+                        homepage = EXCLUDED.homepage,
+                        config = EXCLUDED.config,
                         updated_at = CURRENT_TIMESTAMP
-                """, (feed_name, source_url, enabled, last_update, indicator_count, error))
+                """, (feed_name, source_url, enabled, last_update, indicator_count, error, homepage, config_json))
                 conn.commit()
         except Exception as e:
             conn.rollback()

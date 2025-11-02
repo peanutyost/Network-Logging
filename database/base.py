@@ -293,11 +293,13 @@ class DatabaseBase(ABC):
     def update_threat_feed_metadata(
         self,
         feed_name: str,
-        last_update: datetime,
+        last_update: Optional[datetime],
         indicator_count: int,
         source_url: str,
         enabled: bool = True,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        homepage: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None
     ) -> None:
         """Update threat feed metadata.
         
@@ -308,6 +310,8 @@ class DatabaseBase(ABC):
             source_url: URL where feed is downloaded from
             enabled: Whether feed is enabled
             error: Last error message (if any)
+            homepage: Homepage URL for the feed (optional)
+            config: Feed-specific configuration (e.g., level for ipsum) (optional)
         """
         pass
     

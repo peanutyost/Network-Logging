@@ -212,6 +212,11 @@ export default {
     return response.data
   },
 
+  async updateFeedConfig(feedName, config) {
+    const response = await api.put(`/threat/feeds/${feedName}/config`, config)
+    return response.data
+  },
+
   // Threat Whitelist
   async getThreatWhitelist(limit = 100, indicatorType = null) {
     const params = { limit }

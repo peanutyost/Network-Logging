@@ -15,17 +15,19 @@ logger = logging.getLogger(__name__)
 class ThreatFeedBase(ABC):
     """Base class for threat intelligence feeds."""
     
-    def __init__(self, name: str, url: str, enabled: bool = True):
+    def __init__(self, name: str, url: str, enabled: bool = True, homepage: Optional[str] = None):
         """Initialize threat feed.
         
         Args:
             name: Human-readable name for the feed
             url: URL to download the threat list from
             enabled: Whether this feed is enabled
+            homepage: Homepage URL for the feed (optional)
         """
         self.name = name
         self.url = url
         self.enabled = enabled
+        self.homepage = homepage
         self.last_update: Optional[datetime] = None
         self.last_error: Optional[str] = None
     
@@ -89,7 +91,8 @@ class URLhausFeed(ThreatFeedBase):
         super().__init__(
             name="URLhaus",
             url="https://urlhaus.abuse.ch/downloads/text",
-            enabled=True
+            enabled=True,
+            homepage="https://urlhaus.abuse.ch"
         )
     
     def parse(self, content: str) -> Dict[str, Set[str]]:
@@ -265,6 +268,74 @@ class PhishingArmyFeed(ThreatFeedBase):
         return False
 
 
+class IpsumFeed(ThreatFeedBase):
+    """IPsum threat feed from stamparm (IP addresses categorized by threat level)."""
+    
+    def __init__(self, level: int = 1):
+        """Initialize IPsum feed.
+        
+        Args:
+            level: Threat level (1-8), where higher levels indicate more blacklists
+        """
+        if level < 1 or level > 8:
+            raise ValueError("IPsum level must be between 1 and 8")
+        
+        self.level = level
+        url = f"https://raw.githubusercontent.com/stamparm/ipsum/master/levels/{level}.txt"
+        super().__init__(
+            name=f"IPsum-L{level}",
+            url=url,
+            enabled=True,
+            homepage="https://github.com/stamparm/ipsum"
+        )
+    
+    def parse(self, content: str) -> Dict[str, Set[str]]:
+        """Parse IPsum plain text format.
+        
+        Format: One IP address per line, comments start with #
+        
+        Args:
+            content: Raw content from the IPsum list
+            
+        Returns:
+            Dictionary with 'domains' (empty) and 'ips' (set of IP addresses)
+        """
+        domains = set()
+        ips = set()
+        
+        for line in content.splitlines():
+            line = line.strip()
+            # Skip empty lines and comments
+            if not line or line.startswith('#'):
+                continue
+            
+            # IPsum lists only contain IP addresses
+            # Try to validate it's an IP
+            try:
+                ip_obj = ipaddress.ip_address(line)
+                ips.add(str(ip_obj))
+            except ValueError:
+                # Skip invalid IPs
+                logger.debug(f"Invalid IP address in IPsum feed: {line}")
+                continue
+        
+        return {'domains': domains, 'ips': ips}
+    
+    def set_level(self, level: int):
+        """Update the threat level for this feed.
+        
+        Args:
+            level: New threat level (1-8)
+        """
+        if level < 1 or level > 8:
+            raise ValueError("IPsum level must be between 1 and 8")
+        
+        self.level = level
+        self.url = f"https://raw.githubusercontent.com/stamparm/ipsum/master/levels/{level}.txt"
+        # Update name to reflect new level
+        self.name = f"IPsum-L{level}"
+
+
 class ThreatIntelligenceManager:
     """Manages threat intelligence feeds and indicator matching."""
     
@@ -280,6 +351,8 @@ class ThreatIntelligenceManager:
         # Register default feeds
         self.register_feed(URLhausFeed())
         self.register_feed(PhishingArmyFeed())
+        # Register IPsum feed at default level 1
+        self.register_feed(IpsumFeed(level=1))
     
     def register_feed(self, feed: ThreatFeedBase):
         """Register a threat feed.
@@ -297,13 +370,20 @@ class ThreatIntelligenceManager:
             
             if not feed_exists:
                 # Create initial feed metadata entry
+                # Get feed config if it has level (for ipsum)
+                config = None
+                if hasattr(feed, 'level'):
+                    config = {'level': feed.level}
+                
                 self.db.update_threat_feed_metadata(
                     feed_name=feed.name,
                     last_update=None,
                     indicator_count=0,
                     source_url=feed.url,
                     enabled=feed.enabled,
-                    error=None
+                    error=None,
+                    homepage=getattr(feed, 'homepage', None),
+                    config=config
                 )
                 logger.info(f"Initialized database entry for feed: {feed.name}")
             else:
@@ -379,13 +459,19 @@ class ThreatIntelligenceManager:
             )
             
             # Update feed metadata
+            config = None
+            if hasattr(feed, 'level'):
+                config = {'level': feed.level}
+            
             self.db.update_threat_feed_metadata(
                 feed_name=feed_name,
                 last_update=feed.last_update or datetime.utcnow(),
                 indicator_count=result,
                 source_url=feed.url,
                 enabled=feed.enabled,
-                error=None
+                error=None,
+                homepage=getattr(feed, 'homepage', None),
+                config=config
             )
             
             return {

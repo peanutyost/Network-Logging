@@ -175,10 +175,23 @@ class SQLiteDatabase(DatabaseBase):
                     last_update TIMESTAMP,
                     indicator_count INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
+                    homepage TEXT,
+                    config TEXT,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Add homepage and config columns if they don't exist
+            try:
+                cursor.execute("SELECT homepage FROM threat_feeds LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE threat_feeds ADD COLUMN homepage TEXT")
+            
+            try:
+                cursor.execute("SELECT config FROM threat_feeds LIMIT 1")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE threat_feeds ADD COLUMN config TEXT")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_name ON threat_feeds(feed_name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_threat_feeds_enabled ON threat_feeds(enabled)")
             
@@ -1076,12 +1089,25 @@ class SQLiteDatabase(DatabaseBase):
         if not self.conn:
             self.connect()
         try:
+            import json
             cursor = self.conn.cursor()
             cursor.execute("SELECT * FROM threat_feeds ORDER BY feed_name")
             rows = cursor.fetchall()
             
             columns = [description[0] for description in cursor.description]
-            return [dict(zip(columns, row)) for row in rows]
+            result = []
+            for row in rows:
+                feed_dict = dict(zip(columns, row))
+                # Parse config JSON if present
+                if feed_dict.get('config') and isinstance(feed_dict['config'], str):
+                    try:
+                        feed_dict['config'] = json.loads(feed_dict['config'])
+                    except (json.JSONDecodeError, TypeError):
+                        feed_dict['config'] = None
+                elif feed_dict.get('config') is None:
+                    feed_dict['config'] = None
+                result.append(feed_dict)
+            return result
         except Exception as e:
             logger.error(f"Error getting threat feeds: {e}")
             return []
@@ -1089,28 +1115,34 @@ class SQLiteDatabase(DatabaseBase):
     def update_threat_feed_metadata(
         self,
         feed_name: str,
-        last_update: datetime,
+        last_update: Optional[datetime],
         indicator_count: int,
         source_url: str,
         enabled: bool = True,
-        error: Optional[str] = None
+        error: Optional[str] = None,
+        homepage: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None
     ) -> None:
         """Update threat feed metadata."""
         if not self.conn:
             self.connect()
         try:
+            import json
+            config_json = json.dumps(config) if config else None
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO threat_feeds (feed_name, source_url, enabled, last_update, indicator_count, last_error, homepage, config, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(feed_name) DO UPDATE SET
                     source_url = EXCLUDED.source_url,
                     enabled = EXCLUDED.enabled,
                     last_update = EXCLUDED.last_update,
                     indicator_count = EXCLUDED.indicator_count,
                     last_error = EXCLUDED.last_error,
+                    homepage = EXCLUDED.homepage,
+                    config = EXCLUDED.config,
                     updated_at = CURRENT_TIMESTAMP
-            """, (feed_name, source_url, 1 if enabled else 0, last_update, indicator_count, error))
+            """, (feed_name, source_url, 1 if enabled else 0, last_update, indicator_count, error, homepage, config_json))
             self.conn.commit()
         except Exception as e:
             logger.error(f"Error updating threat feed metadata: {e}")

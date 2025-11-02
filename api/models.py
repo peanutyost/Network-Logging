@@ -174,6 +174,8 @@ class ThreatFeedResponse(BaseModel):
     last_update: Optional[datetime] = None
     indicator_count: int
     last_error: Optional[str] = None
+    homepage: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

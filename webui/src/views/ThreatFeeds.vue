@@ -72,11 +72,35 @@
           </div>
           
           <div class="feed-info">
+            <div class="info-row" v-if="feed.homepage">
+              <span class="label">Homepage:</span>
+              <a :href="feed.homepage" target="_blank" rel="noopener noreferrer" class="homepage-link">
+                {{ feed.homepage }}
+              </a>
+            </div>
+            
             <div class="info-row">
               <span class="label">Source URL:</span>
               <a :href="feed.source_url" target="_blank" rel="noopener noreferrer">
                 {{ feed.source_url }}
               </a>
+            </div>
+            
+            <div class="info-row" v-if="feed.feed_name && feed.feed_name.startsWith('IPsum-L')">
+              <span class="label">Threat Level:</span>
+              <div class="level-controls">
+                <select 
+                  :value="feed.config && feed.config.level ? feed.config.level : 1" 
+                  @change="updateIpsumLevel(feed.feed_name, parseInt($event.target.value))"
+                  :disabled="toggling === feed.feed_name"
+                  class="level-select"
+                >
+                  <option v-for="level in 8" :key="level" :value="level">
+                    Level {{ level }}
+                  </option>
+                </select>
+                <span class="level-help">(Higher = more blacklists)</span>
+              </div>
             </div>
             
             <div class="info-row">
@@ -199,6 +223,25 @@ export default {
         }
       } finally {
         this.updating = null
+      }
+    },
+    async updateIpsumLevel(feedName, newLevel) {
+      if (newLevel < 1 || newLevel > 8) {
+        alert('Level must be between 1 and 8')
+        return
+      }
+      
+      this.toggling = feedName
+      try {
+        await api.updateFeedConfig(feedName, { level: newLevel })
+        alert(`IPsum level updated to ${newLevel}. Please update the feed to apply changes.`)
+        this.loadFeeds() // Refresh to show updated feed name
+      } catch (error) {
+        console.error('Error updating ipsum level:', error)
+        alert('Error updating level. Please try again.')
+        this.loadFeeds() // Reload to reset UI
+      } finally {
+        this.toggling = null
       }
     },
     formatDate(dateString) {
@@ -392,6 +435,38 @@ export default {
 
 .btn-secondary:hover:not(:disabled) {
   background-color: #545b62;
+}
+
+.homepage-link {
+  color: #007bff;
+  text-decoration: none;
+}
+
+.homepage-link:hover {
+  text-decoration: underline;
+}
+
+.level-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.level-select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.level-select:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.level-help {
+  color: #666;
+  font-size: 0.85rem;
 }
 
 .feeds-list {
