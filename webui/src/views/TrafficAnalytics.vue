@@ -154,25 +154,31 @@ export default {
       
       // Filter out entries where domain is actually an IP address
       // The API returns COALESCE(domain, destination_ip) so some entries are IPs
+      // IPs may have CIDR notation like /32, so we need to strip that
       if (this.filterRfc1918 || this.filterMulticast) {
         filtered = filtered.filter(item => {
           const domainOrIp = item.domain
           if (!domainOrIp) return true
           
-          // Check if it's an IP address (contains dots or colons and matches IP pattern)
-          const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(domainOrIp) || /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(domainOrIp)
+          // Check if it's an IP address (may have /32 or other CIDR notation)
+          // IPv4: matches pattern like 192.168.1.1 or 192.168.1.1/32
+          // IPv6: matches pattern with colons, may have /128
+          const isIP = /^(\d{1,3}\.){3}\d{1,3}(\/\d+)?$/.test(domainOrIp) || /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(\/\d+)?$/i.test(domainOrIp)
           
           if (!isIP) {
             // It's a domain name, not an IP - keep it
             return true
           }
           
+          // Strip CIDR notation (/32, /128, etc.) from IP for filtering
+          const ipWithoutCidr = domainOrIp.split('/')[0]
+          
           // It's an IP address - apply filters
-          if (this.filterRfc1918 && this.isRfc1918(domainOrIp)) {
+          if (this.filterRfc1918 && this.isRfc1918(ipWithoutCidr)) {
             return false
           }
           
-          if (this.filterMulticast && this.isMulticast(domainOrIp)) {
+          if (this.filterMulticast && this.isMulticast(ipWithoutCidr)) {
             return false
           }
           
