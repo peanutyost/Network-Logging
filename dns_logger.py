@@ -50,24 +50,31 @@ class DNSLogger:
             # Check for threat indicators before logging
             if self.threat_intel_manager:
                 try:
+                    # Normalize domain for whitelist check
+                    domain_normalized = domain.lower().strip() if domain else None
+                    
                     # Check if domain is whitelisted first
-                    if self.db.is_threat_whitelisted(domain=domain):
-                        logger.debug(f"Skipping threat check for whitelisted domain: {domain}")
+                    if domain_normalized and self.db.is_threat_whitelisted(domain=domain_normalized):
+                        logger.debug(f"Skipping threat check for whitelisted domain: {domain_normalized}")
                     else:
                         # Check domain for threat match
                         threat_match = self.threat_intel_manager.check_domain(domain)
                         if threat_match:
-                            # Create alert
-                            self.threat_intel_manager.create_alert(
-                                domain=domain,
-                                ip=None,
-                                query_type=query_type,
-                                source_ip=source_ip or '',
-                                threat_feed=threat_match.get('feed_name', 'Unknown'),
-                                indicator_type='domain'
-                            )
+                            # Double-check whitelist before creating alert (defensive)
+                            if domain_normalized and self.db.is_threat_whitelisted(domain=domain_normalized):
+                                logger.debug(f"Skipping alert creation for whitelisted domain: {domain_normalized}")
+                            else:
+                                # Create alert
+                                self.threat_intel_manager.create_alert(
+                                    domain=domain,
+                                    ip=None,
+                                    query_type=query_type,
+                                    source_ip=source_ip or '',
+                                    threat_feed=threat_match.get('feed_name', 'Unknown'),
+                                    indicator_type='domain'
+                                )
                 except Exception as e:
-                    logger.debug(f"Error checking domain threat: {e}")
+                    logger.error(f"Error checking domain threat: {e}", exc_info=True)
             
             # Record per-event row
             try:
@@ -164,23 +171,30 @@ class DNSLogger:
                 if self.threat_intel_manager and resolved_ips:
                     for ip in resolved_ips:
                         try:
+                            # Normalize IP (ensure it's a string)
+                            ip_str = str(ip).strip() if ip else None
+                            
                             # Check if IP is whitelisted first
-                            if self.db.is_threat_whitelisted(ip=ip):
-                                logger.debug(f"Skipping threat check for whitelisted IP: {ip}")
+                            if ip_str and self.db.is_threat_whitelisted(ip=ip_str):
+                                logger.debug(f"Skipping threat check for whitelisted IP: {ip_str}")
                             else:
-                                threat_match = self.threat_intel_manager.check_ip(ip)
+                                threat_match = self.threat_intel_manager.check_ip(ip_str)
                                 if threat_match:
-                                    # Create alert for IP match
-                                    self.threat_intel_manager.create_alert(
-                                        domain=domain,
-                                        ip=ip,
-                                        query_type=query_type,
-                                        source_ip=source_ip or '',
-                                        threat_feed=threat_match.get('feed_name', 'Unknown'),
-                                        indicator_type='ip'
-                                    )
+                                    # Double-check whitelist before creating alert (defensive)
+                                    if ip_str and self.db.is_threat_whitelisted(ip=ip_str):
+                                        logger.debug(f"Skipping alert creation for whitelisted IP: {ip_str}")
+                                    else:
+                                        # Create alert for IP match
+                                        self.threat_intel_manager.create_alert(
+                                            domain=domain,
+                                            ip=ip_str,
+                                            query_type=query_type,
+                                            source_ip=source_ip or '',
+                                            threat_feed=threat_match.get('feed_name', 'Unknown'),
+                                            indicator_type='ip'
+                                        )
                         except Exception as e:
-                            logger.debug(f"Error checking IP threat: {e}")
+                            logger.error(f"Error checking IP threat {ip}: {e}", exc_info=True)
         
         except Exception as e:
             logger.error(f"Error logging DNS data: {e}")

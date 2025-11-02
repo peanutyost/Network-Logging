@@ -1270,17 +1270,23 @@ class SQLiteDatabase(DatabaseBase):
         try:
             cursor = self.conn.cursor()
             if domain:
+                # Normalize domain
+                domain_lower = domain.lower().strip()
+                if not domain_lower:
+                    return False
+                
                 # Check exact match
                 cursor.execute("""
                     SELECT 1 FROM threat_whitelist
                     WHERE indicator_type = 'domain' AND domain = ?
                     LIMIT 1
-                """, (domain.lower(),))
+                """, (domain_lower,))
                 if cursor.fetchone():
+                    logger.debug(f"Whitelist exact match found for domain: {domain_lower}")
                     return True
                 
                 # Check if domain is a subdomain of a whitelisted domain
-                parts = domain.lower().split('.')
+                parts = domain_lower.split('.')
                 for i in range(1, len(parts)):
                     parent_domain = '.'.join(parts[i:])
                     if len(parent_domain.split('.')) >= 2:
@@ -1290,19 +1296,28 @@ class SQLiteDatabase(DatabaseBase):
                             LIMIT 1
                         """, (parent_domain,))
                         if cursor.fetchone():
+                            logger.debug(f"Whitelist parent domain match found: {parent_domain} for {domain_lower}")
                             return True
                 
                 return False
             elif ip:
+                # Normalize IP
+                ip_str = str(ip).strip() if ip else None
+                if not ip_str:
+                    return False
+                
                 cursor.execute("""
                     SELECT 1 FROM threat_whitelist
                     WHERE indicator_type = 'ip' AND ip = ?
                     LIMIT 1
-                """, (ip,))
-                return cursor.fetchone() is not None
+                """, (ip_str,))
+                result = cursor.fetchone() is not None
+                if result:
+                    logger.debug(f"Whitelist match found for IP: {ip_str}")
+                return result
             return False
         except Exception as e:
-            logger.error(f"Error checking threat whitelist: {e}")
+            logger.error(f"Error checking threat whitelist: {e}", exc_info=True)
             return False
     
     # Settings operations
