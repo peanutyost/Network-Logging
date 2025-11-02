@@ -15,14 +15,24 @@
       </label>
       <button @click="loadData" class="refresh-button">Refresh</button>
       <button @click="exportCSV" class="export-button">Export CSV</button>
-      <label class="filter-checkbox">
-        <input
-          type="checkbox"
-          v-model="filterRfc1918"
-          @change="applyFilter"
-        />
-        Filter RFC 1918 IPs
-      </label>
+      <div class="filter-group">
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterRfc1918"
+            @change="applyFilter"
+          />
+          Filter RFC 1918 IPs
+        </label>
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterMulticast"
+            @change="applyFilter"
+          />
+          Filter Multicast IPs
+        </label>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading orphaned IPs...</div>
@@ -84,7 +94,8 @@ export default {
       loading: false,
       days: 7,
       currentTimezone: getTimezone(),
-      filterRfc1918: false
+      filterRfc1918: false,
+      filterMulticast: false
     }
   },
   mounted() {
@@ -129,7 +140,10 @@ export default {
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      const filterSuffix = this.filterRfc1918 ? '-filtered' : ''
+      const filters = []
+      if (this.filterRfc1918) filters.push('no-rfc1918')
+      if (this.filterMulticast) filters.push('no-multicast')
+      const filterSuffix = filters.length > 0 ? `-${filters.join('-')}` : ''
       a.download = `orphaned-ips-${new Date().toISOString().split('T')[0]}${filterSuffix}.csv`
       a.click()
       window.URL.revokeObjectURL(url)
@@ -180,6 +194,39 @@ export default {
         return false
       }
     },
+    isMulticast(ip) {
+      if (!ip) return false
+      try {
+        const ipStr = String(ip).trim()
+        
+        // Check IPv4 multicast: 224.0.0.0/4 (224.0.0.0 to 239.255.255.255)
+        if (ipStr.includes('.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 1) {
+            const firstOctet = parseInt(parts[0], 10)
+            if (firstOctet >= 224 && firstOctet <= 239) {
+              return true
+            }
+          }
+        }
+        
+        // Check IPv6 multicast: ff00::/8 (starts with ff)
+        if (ipStr.includes(':')) {
+          const parts = ipStr.split(':')
+          if (parts.length > 0 && parts[0].toLowerCase() === 'ff') {
+            return true
+          }
+          // Also check compressed format (::ff...)
+          if (ipStr.toLowerCase().startsWith('ff')) {
+            return true
+          }
+        }
+        
+        return false
+      } catch (e) {
+        return false
+      }
+    },
     applyFilter() {
       // Filter is applied via computed property
       this.$forceUpdate()
@@ -187,10 +234,17 @@ export default {
   },
   computed: {
     filteredOrphanedIPs() {
-      if (!this.filterRfc1918) {
-        return this.orphanedIPs
+      let filtered = this.orphanedIPs
+      
+      if (this.filterRfc1918) {
+        filtered = filtered.filter(ip => !this.isRfc1918(ip.destination_ip))
       }
-      return this.orphanedIPs.filter(ip => !this.isRfc1918(ip.destination_ip))
+      
+      if (this.filterMulticast) {
+        filtered = filtered.filter(ip => !this.isMulticast(ip.destination_ip))
+      }
+      
+      return filtered
     }
   }
 }
@@ -214,11 +268,17 @@ export default {
   gap: 0.5rem;
 }
 
+.filter-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-left: auto;
+}
+
 .filter-checkbox {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-left: auto;
   padding: 0.5rem 1rem;
   background-color: #f8f9fa;
   border-radius: 4px;
