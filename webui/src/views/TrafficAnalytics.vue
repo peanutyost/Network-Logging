@@ -36,8 +36,24 @@
     <div v-if="loading" class="loading">Loading...</div>
 
     <div class="top-domains">
-      <h2>Top Domains by Traffic</h2>
-      <table class="analytics-table">
+      <div class="domains-header">
+        <h2>All Domains by Traffic</h2>
+        <div class="page-size-selector">
+          <label>
+            Items per page:
+            <select v-model.number="itemsPerPage" @change="onPageSizeChange" class="page-size-select">
+              <option :value="25">25</option>
+              <option :value="50">50</option>
+              <option :value="100">100</option>
+              <option :value="200">200</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      
+      <div v-if="loading" class="loading">Loading...</div>
+      
+      <table v-else class="analytics-table">
         <thead>
           <tr>
             <th>Domain</th>
@@ -59,6 +75,46 @@
           </tr>
         </tbody>
       </table>
+      
+      <div v-if="!loading && filteredTopDomains.length === 0" class="no-data">
+        No domains found{{ filterRfc1918 || filterMulticast ? ' (after filtering)' : '' }}.
+      </div>
+      
+      <div v-if="totalPages > 1" class="pagination">
+        <button 
+          @click="goToPage(1)" 
+          :disabled="currentPage === 1"
+          class="pagination-btn"
+        >
+          First
+        </button>
+        <button 
+          @click="goToPage(currentPage - 1)" 
+          :disabled="currentPage === 1"
+          class="pagination-btn"
+        >
+          Previous
+        </button>
+        
+        <span class="page-info">
+          Page {{ currentPage }} of {{ totalPages }} ({{ totalCount }} total)
+        </span>
+        
+        <button 
+          @click="goToPage(currentPage + 1)" 
+          :disabled="currentPage >= totalPages"
+          class="pagination-btn"
+        >
+          Next
+        </button>
+        <button 
+          @click="goToPage(totalPages)" 
+          :disabled="currentPage >= totalPages"
+          class="pagination-btn"
+        >
+          Last
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -75,7 +131,10 @@ export default {
       startDate: null,
       endDate: null,
       filterRfc1918: false,
-      filterMulticast: false
+      filterMulticast: false,
+      currentPage: 1,
+      itemsPerPage: 50,
+      totalCount: 0
     }
   },
   mounted() {
@@ -87,12 +146,28 @@ export default {
       try {
         const startTime = this.startDate ? new Date(this.startDate) : null
         const endTime = this.endDate ? new Date(this.endDate) : null
-        this.topDomains = await api.getTopDomains(50, startTime, endTime)
+        const offset = (this.currentPage - 1) * this.itemsPerPage
+        
+        const response = await api.getTopDomains(this.itemsPerPage, offset, startTime, endTime)
+        this.topDomains = response.domains || []
+        this.totalCount = response.total || 0
       } catch (error) {
         console.error('Error loading analytics data:', error)
+        this.topDomains = []
+        this.totalCount = 0
       } finally {
         this.loading = false
       }
+    },
+    goToPage(page) {
+      if (page < 1 || page > this.totalPages) return
+      this.currentPage = page
+      this.loadData()
+    },
+    onPageSizeChange() {
+      // Reset to first page when changing page size
+      this.currentPage = 1
+      this.loadData()
     },
     formatBytes(bytes) {
       if (bytes === null || bytes === undefined || isNaN(bytes) || bytes === 0) return '0 B'
@@ -187,6 +262,9 @@ export default {
       }
       
       return filtered
+    },
+    totalPages() {
+      return Math.ceil(this.totalCount / this.itemsPerPage) || 1
     }
   }
 }
@@ -260,6 +338,64 @@ export default {
 }
 
 .loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
+.domains-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.page-size-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.page-size-select {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding: 1rem;
+}
+
+.pagination-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background-color: #f8f9fa;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  padding: 0.5rem 1rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.no-data {
   text-align: center;
   padding: 2rem;
   color: #666;

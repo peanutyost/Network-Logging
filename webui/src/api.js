@@ -98,8 +98,8 @@ export default {
     return response.data
   },
 
-  async getTopDomains(limit = 10, startTime = null, endTime = null) {
-    let url = `/traffic/top-domains?limit=${limit}`
+  async getTopDomains(limit = 50, offset = 0, startTime = null, endTime = null) {
+    let url = `/traffic/top-domains?limit=${limit}&offset=${offset}`
     const params = new URLSearchParams()
     if (startTime) params.append('start_time', startTime.toISOString())
     if (endTime) params.append('end_time', endTime.toISOString())

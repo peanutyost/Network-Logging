@@ -867,6 +867,7 @@ class PostgreSQLDatabase(DatabaseBase):
     def get_top_domains(
         self,
         limit: int = 10,
+        offset: int = 0,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
@@ -899,9 +900,9 @@ class PostgreSQLDatabase(DatabaseBase):
                 query += """
                     GROUP BY COALESCE(domain, destination_ip::text)
                     ORDER BY total_bytes DESC
-                    LIMIT %s
+                    LIMIT %s OFFSET %s
                 """
-                params.append(limit)
+                params.extend([limit, offset])
                 
                 cur.execute(query, params)
                 results = cur.fetchall()
@@ -909,6 +910,39 @@ class PostgreSQLDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error getting top domains: {e}")
             return []
+        finally:
+            self._return_connection(conn)
+    
+    def get_top_domains_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None
+    ) -> int:
+        """Get total count of domains for pagination."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                query = """
+                    SELECT COUNT(DISTINCT COALESCE(domain, destination_ip::text)) as total
+                    FROM traffic_flows
+                    WHERE 1=1
+                """
+                params = []
+                
+                if start_time:
+                    query += " AND last_update >= %s"
+                    params.append(start_time)
+                
+                if end_time:
+                    query += " AND last_update <= %s"
+                    params.append(end_time)
+                
+                cur.execute(query, params)
+                result = cur.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting top domains count: {e}")
+            return 0
         finally:
             self._return_connection(conn)
     

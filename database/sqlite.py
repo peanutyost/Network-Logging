@@ -540,6 +540,7 @@ class SQLiteDatabase(DatabaseBase):
     def get_top_domains(
         self,
         limit: int = 10,
+        offset: int = 0,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
@@ -574,9 +575,9 @@ class SQLiteDatabase(DatabaseBase):
             query += """
                 GROUP BY COALESCE(domain, destination_ip)
                 ORDER BY total_bytes DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
             """
-            params.append(limit)
+            params.extend([limit, offset])
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
@@ -584,6 +585,39 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error getting top domains: {e}")
             return []
+    
+    def get_top_domains_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None
+    ) -> int:
+        """Get total count of domains for pagination."""
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                SELECT COUNT(DISTINCT COALESCE(domain, destination_ip)) as total
+                FROM traffic_flows
+                WHERE 1=1
+            """
+            params = []
+            
+            if start_time:
+                query += " AND last_update >= ?"
+                params.append(start_time)
+            
+            if end_time:
+                query += " AND last_update <= ?"
+                params.append(end_time)
+            
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting top domains count: {e}")
+            return 0
     
     def get_dashboard_stats(
         self,

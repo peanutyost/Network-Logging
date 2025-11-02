@@ -126,10 +126,38 @@ class DatabaseBase(ABC):
     def get_top_domains(
         self,
         limit: int = 10,
+        offset: int = 0,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ) -> List[Dict[str, Any]]:
-        """Get top domains by query count or traffic volume."""
+        """Get top domains by query count or traffic volume.
+        
+        Args:
+            limit: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            
+        Returns:
+            List of domain statistics
+        """
+        pass
+    
+    @abstractmethod
+    def get_top_domains_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None
+    ) -> int:
+        """Get total count of domains for pagination.
+        
+        Args:
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            
+        Returns:
+            Total count of domains
+        """
         pass
     
     @abstractmethod

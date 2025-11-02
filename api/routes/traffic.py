@@ -52,14 +52,34 @@ async def get_traffic_volume_by_domain(
     return result
 
 
-@router.get("/top-domains", response_model=List[dict])
+@router.get("/top-domains", response_model=dict)
 async def get_top_domains(
-    limit: int = 10,
+    limit: int = 50,
+    offset: int = 0,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     db: DatabaseBase = Depends(get_db)
 ):
-    """Get top domains by traffic volume."""
-    results = db.get_top_domains(limit=limit, start_time=start_time, end_time=end_time)
-    return results
+    """Get top domains by traffic volume with pagination.
+    
+    Args:
+        limit: Number of results per page (default: 50, max: 1000)
+        offset: Number of results to skip (for pagination)
+        start_time: Optional start time filter
+        end_time: Optional end time filter
+    """
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be >= 0")
+    
+    results = db.get_top_domains(limit=limit, offset=offset, start_time=start_time, end_time=end_time)
+    total_count = db.get_top_domains_count(start_time=start_time, end_time=end_time)
+    
+    return {
+        "domains": results,
+        "total": total_count,
+        "limit": limit,
+        "offset": offset
+    }
 
