@@ -199,6 +199,11 @@ export default {
       try {
         const ipStr = String(ip).trim()
         
+        // Check for broadcast address 255.255.255.255
+        if (ipStr === '255.255.255.255') {
+          return true
+        }
+        
         // Check IPv4 multicast: 224.0.0.0/4 (224.0.0.0 to 239.255.255.255)
         if (ipStr.includes('.')) {
           const parts = ipStr.split('.')
