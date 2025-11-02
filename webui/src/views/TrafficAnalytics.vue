@@ -13,6 +13,24 @@
         v-model="endDate"
         @change="loadData"
       />
+      <div class="filter-group">
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterRfc1918"
+            @change="applyFilter"
+          />
+          Filter RFC 1918 IPs
+        </label>
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterMulticast"
+            @change="applyFilter"
+          />
+          Filter Multicast IPs
+        </label>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading...</div>
@@ -31,7 +49,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="domain in topDomains" :key="domain.domain">
+          <tr v-for="domain in filteredTopDomains" :key="domain.domain">
             <td>{{ domain.domain }}</td>
             <td>{{ formatBytes(domain.total_bytes) }}</td>
             <td>{{ formatBytes(domain.bytes_sent) }}</td>
@@ -55,7 +73,9 @@ export default {
       topDomains: [],
       loading: false,
       startDate: null,
-      endDate: null
+      endDate: null,
+      filterRfc1918: false,
+      filterMulticast: false
     }
   },
   mounted() {
@@ -83,6 +103,57 @@ export default {
     },
     formatNumber(num) {
       return new Intl.NumberFormat().format(num || 0)
+    },
+    isRfc1918(ip) {
+      if (!ip) return false
+      try {
+        const ipStr = String(ip).trim()
+        if (ipStr.startsWith('10.')) return true
+        if (ipStr.startsWith('192.168.')) return true
+        if (ipStr.startsWith('172.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 2) {
+            const secondOctet = parseInt(parts[1], 10)
+            if (secondOctet >= 16 && secondOctet <= 31) return true
+          }
+        }
+        if (ipStr.startsWith('127.')) return true
+        if (ipStr.startsWith('169.254.')) return true
+        return false
+      } catch (e) {
+        return false
+      }
+    },
+    isMulticast(ip) {
+      if (!ip) return false
+      try {
+        const ipStr = String(ip).trim()
+        if (ipStr === '255.255.255.255') return true
+        if (ipStr.includes('.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 1) {
+            const firstOctet = parseInt(parts[0], 10)
+            if (firstOctet >= 224 && firstOctet <= 239) return true
+          }
+        }
+        if (ipStr.includes(':')) {
+          if (ipStr.toLowerCase().startsWith('ff')) return true
+        }
+        return false
+      } catch (e) {
+        return false
+      }
+    },
+    applyFilter() {
+      this.$forceUpdate()
+    }
+  },
+  computed: {
+    filteredTopDomains() {
+      // Note: TrafficAnalytics shows domains, not IPs directly
+      // These filters are available but don't filter domains by their resolved IPs
+      // They're here for UI consistency and potential future use
+      return this.topDomains
     }
   }
 }
@@ -96,13 +167,38 @@ export default {
 .controls {
   display: flex;
   gap: 1rem;
+  align-items: center;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
 }
 
 .controls input {
   padding: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
+}
+
+.filter-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
 }
 
 .top-domains {

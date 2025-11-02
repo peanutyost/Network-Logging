@@ -11,6 +11,24 @@
         class="search-input"
       />
       <button @click="search" class="search-button">Search</button>
+      <div class="filter-group">
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterRfc1918"
+            @change="applyFilter"
+          />
+          Filter RFC 1918 IPs
+        </label>
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            v-model="filterMulticast"
+            @change="applyFilter"
+          />
+          Filter Multicast IPs
+        </label>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading...</div>
@@ -25,7 +43,7 @@
         <div class="info-item">
           <label>Resolved IPs:</label>
           <ul>
-            <li v-for="ip in domainInfo.resolved_ips" :key="ip">{{ ip }}</li>
+            <li v-for="ip in filteredResolvedIPs" :key="ip">{{ ip }}</li>
           </ul>
         </div>
         <div class="info-item">
@@ -121,7 +139,7 @@
           >
             <td>{{ result.domain }}</td>
             <td>{{ result.query_type }}</td>
-            <td>{{ result.resolved_ips.join(', ') || 'N/A' }}</td>
+            <td>{{ filterIPsList(result.resolved_ips).join(', ') || 'N/A' }}</td>
             <td>{{ formatDate(result.last_seen) }}</td>
           </tr>
         </tbody>
@@ -154,7 +172,9 @@ export default {
       timeRangeHours: 24,
       timeRangeStart: null,
       timeRangeEnd: null,
-      currentTimezone: getTimezone()
+      currentTimezone: getTimezone(),
+      filterRfc1918: false,
+      filterMulticast: false
     }
   },
   mounted() {
@@ -235,6 +255,60 @@ export default {
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ')
     },
+    isRfc1918(ip) {
+      if (!ip) return false
+      try {
+        const ipStr = String(ip).trim()
+        if (ipStr.startsWith('10.')) return true
+        if (ipStr.startsWith('192.168.')) return true
+        if (ipStr.startsWith('172.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 2) {
+            const secondOctet = parseInt(parts[1], 10)
+            if (secondOctet >= 16 && secondOctet <= 31) return true
+          }
+        }
+        if (ipStr.startsWith('127.')) return true
+        if (ipStr.startsWith('169.254.')) return true
+        return false
+      } catch (e) {
+        return false
+      }
+    },
+    isMulticast(ip) {
+      if (!ip) return false
+      try {
+        const ipStr = String(ip).trim()
+        if (ipStr === '255.255.255.255') return true
+        if (ipStr.includes('.')) {
+          const parts = ipStr.split('.')
+          if (parts.length >= 1) {
+            const firstOctet = parseInt(parts[0], 10)
+            if (firstOctet >= 224 && firstOctet <= 239) return true
+          }
+        }
+        if (ipStr.includes(':')) {
+          if (ipStr.toLowerCase().startsWith('ff')) return true
+        }
+        return false
+      } catch (e) {
+        return false
+      }
+    },
+    filterIPsList(ips) {
+      if (!ips || !Array.isArray(ips)) return []
+      let filtered = [...ips]
+      if (this.filterRfc1918) {
+        filtered = filtered.filter(ip => !this.isRfc1918(ip))
+      }
+      if (this.filterMulticast) {
+        filtered = filtered.filter(ip => !this.isMulticast(ip))
+      }
+      return filtered
+    },
+    applyFilter() {
+      this.$forceUpdate()
+    },
     updateTimeRange() {
       if (this.timeRangeHours && this.timeRangeHours !== '') {
         const hours = Number(this.timeRangeHours)
@@ -245,6 +319,12 @@ export default {
         this.timeRangeEnd = null
         this.timeRangeHours = null
       }
+    }
+  },
+  computed: {
+    filteredResolvedIPs() {
+      if (!this.domainInfo || !this.domainInfo.resolved_ips) return []
+      return this.filterIPsList(this.domainInfo.resolved_ips)
     }
   }
 }
@@ -258,7 +338,32 @@ export default {
 .search-box {
   display: flex;
   gap: 1rem;
+  align-items: center;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
 }
 
 .search-input {
