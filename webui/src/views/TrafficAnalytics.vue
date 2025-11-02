@@ -150,10 +150,37 @@ export default {
   },
   computed: {
     filteredTopDomains() {
-      // Note: TrafficAnalytics shows domains, not IPs directly
-      // These filters are available but don't filter domains by their resolved IPs
-      // They're here for UI consistency and potential future use
-      return this.topDomains
+      let filtered = this.topDomains
+      
+      // Filter out entries where domain is actually an IP address
+      // The API returns COALESCE(domain, destination_ip) so some entries are IPs
+      if (this.filterRfc1918 || this.filterMulticast) {
+        filtered = filtered.filter(item => {
+          const domainOrIp = item.domain
+          if (!domainOrIp) return true
+          
+          // Check if it's an IP address (contains dots or colons and matches IP pattern)
+          const isIP = /^(\d{1,3}\.){3}\d{1,3}$/.test(domainOrIp) || /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(domainOrIp)
+          
+          if (!isIP) {
+            // It's a domain name, not an IP - keep it
+            return true
+          }
+          
+          // It's an IP address - apply filters
+          if (this.filterRfc1918 && this.isRfc1918(domainOrIp)) {
+            return false
+          }
+          
+          if (this.filterMulticast && this.isMulticast(domainOrIp)) {
+            return false
+          }
+          
+          return true
+        })
+      }
+      
+      return filtered
     }
   }
 }
