@@ -15,6 +15,9 @@
       </label>
       <button @click="loadData" class="refresh-button">Refresh</button>
       <button @click="exportCSV" class="export-button">Export CSV</button>
+      <button @click="excludeRfc1918" class="rfc1918-button" :disabled="excludingRfc1918">
+        {{ excludingRfc1918 ? 'Excluding...' : 'Exclude RFC 1918 IPs' }}
+      </button>
     </div>
 
     <div v-if="loading" class="loading">Loading orphaned IPs...</div>
@@ -70,7 +73,8 @@ export default {
       orphanedIPs: [],
       loading: false,
       days: 7,
-      currentTimezone: getTimezone()
+      currentTimezone: getTimezone(),
+      excludingRfc1918: false
     }
   },
   mounted() {
@@ -131,6 +135,24 @@ export default {
     },
     formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
       return formatDateInTimezone(dateString, formatString, this.currentTimezone)
+    },
+    async excludeRfc1918() {
+      this.excludingRfc1918 = true
+      try {
+        const result = await api.addRfc1918Whitelist()
+        alert(
+          `RFC 1918 IPs excluded!\n\n` +
+          `${result.message}\n\n` +
+          `Note: Private IP addresses (RFC 1918) are automatically excluded from threat alerts.\n` +
+          `This action adds them to the whitelist for visibility.`
+        )
+      } catch (error) {
+        console.error('Error excluding RFC 1918:', error)
+        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        alert(`Error excluding RFC 1918 IPs: ${errorMsg}`)
+      } finally {
+        this.excludingRfc1918 = false
+      }
     }
   }
 }
@@ -162,7 +184,8 @@ export default {
 }
 
 .refresh-button,
-.export-button {
+.export-button,
+.rfc1918-button {
   padding: 0.5rem 1.5rem;
   border: none;
   border-radius: 4px;
@@ -178,6 +201,20 @@ export default {
 .export-button {
   background-color: #27ae60;
   color: white;
+}
+
+.rfc1918-button {
+  background-color: #3498db;
+  color: white;
+}
+
+.rfc1918-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.rfc1918-button:hover:not(:disabled) {
+  background-color: #2980b9;
 }
 
 .orphaned-ips {

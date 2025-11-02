@@ -313,6 +313,68 @@ async def remove_threat_whitelist(
     return {"success": True, "message": "Whitelist entry removed"}
 
 
+@router.post("/whitelist/rfc1918")
+async def add_rfc1918_whitelist(
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Add RFC 1918 private IP ranges to the threat whitelist.
+    
+    This adds the following ranges:
+    - 10.0.0.0/8 (10.0.0.0 to 10.255.255.255)
+    - 172.16.0.0/12 (172.16.0.0 to 172.31.255.255)
+    - 192.168.0.0/16 (192.168.0.0 to 192.168.255.255)
+    - 127.0.0.0/8 (loopback)
+    - 169.254.0.0/16 (link-local)
+    
+    Note: The whitelist check automatically excludes RFC 1918 IPs,
+    but this endpoint allows adding them explicitly for management purposes.
+    """
+    import ipaddress
+    
+    rfc1918_ranges = [
+        ("10.0.0.0/8", "RFC 1918 - Private Class A (10.0.0.0/8)"),
+        ("172.16.0.0/12", "RFC 1918 - Private Class B (172.16.0.0/12)"),
+        ("192.168.0.0/16", "RFC 1918 - Private Class C (192.168.0.0/16)"),
+        ("127.0.0.0/8", "Loopback (127.0.0.0/8)"),
+        ("169.254.0.0/16", "Link-local (169.254.0.0/16)"),
+    ]
+    
+    added_count = 0
+    skipped_count = 0
+    
+    for cidr, reason in rfc1918_ranges:
+        try:
+            # Try to add as a CIDR notation entry
+            # For now, we'll add representative entries since exact CIDR matching isn't implemented
+            # The automatic check will handle the ranges anyway
+            network = ipaddress.ip_network(cidr, strict=False)
+            # Add the network address as a marker
+            # The automatic is_private check will handle the actual range matching
+            try:
+                db.add_threat_whitelist(
+                    indicator_type='ip',
+                    domain=None,
+                    ip=str(network.network_address),
+                    reason=reason
+                )
+                added_count += 1
+            except ValueError:
+                # Entry might already exist
+                skipped_count += 1
+        except Exception as e:
+            logger.warning(f"Error adding RFC 1918 range {cidr}: {e}")
+            skipped_count += 1
+    
+    return {
+        "success": True,
+        "message": f"RFC 1918 exclusion enabled. Added {added_count} entries, skipped {skipped_count} duplicates.",
+        "added": added_count,
+        "skipped": skipped_count,
+        "note": "Note: RFC 1918 private IPs are automatically excluded from threat alerts regardless of whitelist entries."
+    }
+
+
 @router.post("/scan-historical", response_model=ThreatScanResponse)
 async def scan_historical_threats(
     days: int = 30,

@@ -1630,6 +1630,32 @@ class PostgreSQLDatabase(DatabaseBase):
                     if not ip_str:
                         return False
                     
+                    # Check if IP is in RFC 1918 private ranges or other private ranges
+                    try:
+                        import ipaddress
+                        ip_obj = ipaddress.ip_address(ip_str)
+                        
+                        # Check RFC 1918 private IPv4 ranges
+                        if isinstance(ip_obj, ipaddress.IPv4Address):
+                            if (ip_obj.is_private or 
+                                ip_obj.is_loopback or 
+                                ip_obj.is_link_local or
+                                ip_obj.is_multicast):
+                                logger.debug(f"Whitelist match found for private/IPv4 IP: {ip_str}")
+                                return True
+                        # Check IPv6 private ranges
+                        elif isinstance(ip_obj, ipaddress.IPv6Address):
+                            if (ip_obj.is_private or 
+                                ip_obj.is_loopback or 
+                                ip_obj.is_link_local or
+                                ip_obj.is_multicast):
+                                logger.debug(f"Whitelist match found for private/IPv6 IP: {ip_str}")
+                                return True
+                    except ValueError:
+                        # Invalid IP format, continue to exact match check
+                        pass
+                    
+                    # Check exact match in whitelist
                     cur.execute("""
                         SELECT 1 FROM threat_whitelist
                         WHERE indicator_type = 'ip' AND ip = %s
@@ -1637,7 +1663,7 @@ class PostgreSQLDatabase(DatabaseBase):
                     """, (ip_str,))
                     result = cur.fetchone() is not None
                     if result:
-                        logger.debug(f"Whitelist match found for IP: {ip_str}")
+                        logger.debug(f"Whitelist exact match found for IP: {ip_str}")
                     return result
                 return False
         except Exception as e:

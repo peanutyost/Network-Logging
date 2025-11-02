@@ -235,6 +235,11 @@ export default {
     return response.data
   },
 
+  async addRfc1918Whitelist() {
+    const response = await api.post('/threat/whitelist/rfc1918')
+    return response.data
+  },
+
   // Threat configuration
   async getThreatConfig() {
     const response = await api.get('/threat/config')
