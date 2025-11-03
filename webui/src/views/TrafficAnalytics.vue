@@ -37,7 +37,7 @@
 
     <div class="top-domains">
       <div class="domains-header">
-        <h2>All Domains by Traffic</h2>
+        <h2>External Domains by Traffic (Per Client)</h2>
         <div class="page-size-selector">
           <label>
             Items per page:
@@ -57,27 +57,29 @@
         <thead>
           <tr>
             <th>Domain</th>
+            <th>Client IP</th>
             <th>Total Bytes</th>
             <th>Sent</th>
             <th>Received</th>
             <th>Packets</th>
-            <th>Connections</th>
+            <th>Flows</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="domain in filteredTopDomains" :key="domain.domain">
-            <td>{{ domain.domain }}</td>
-            <td>{{ formatBytes(domain.total_bytes) }}</td>
-            <td>{{ formatBytes(domain.bytes_sent) }}</td>
-            <td>{{ formatBytes(domain.bytes_received) }}</td>
-            <td>{{ formatNumber(domain.total_packets) }}</td>
-            <td>{{ formatNumber(domain.query_count) }}</td>
+          <tr v-for="stat in filteredStats" :key="`${stat.domain}-${stat.client_ip}`">
+            <td>{{ stat.domain }}</td>
+            <td>{{ stat.client_ip }}</td>
+            <td>{{ formatBytes(stat.total_bytes) }}</td>
+            <td>{{ formatBytes(stat.bytes_sent) }}</td>
+            <td>{{ formatBytes(stat.bytes_received) }}</td>
+            <td>{{ formatNumber(stat.total_packets) }}</td>
+            <td>{{ formatNumber(stat.flow_count) }}</td>
           </tr>
         </tbody>
       </table>
       
-      <div v-if="!loading && filteredTopDomains.length === 0" class="no-data">
-        No domains found{{ filterRfc1918 || filterMulticast ? ' (after filtering)' : '' }}.
+      <div v-if="!loading && filteredStats.length === 0" class="no-data">
+        No external domains found{{ filterRfc1918 || filterMulticast ? ' (after filtering)' : '' }}.
       </div>
       
       <div v-if="totalPages > 1" class="pagination">
@@ -126,7 +128,7 @@ export default {
   name: 'TrafficAnalytics',
   data() {
     return {
-      topDomains: [],
+      stats: [],
       loading: false,
       startDate: null,
       endDate: null,
@@ -148,12 +150,12 @@ export default {
         const endTime = this.endDate ? new Date(this.endDate) : null
         const offset = (this.currentPage - 1) * this.itemsPerPage
         
-        const response = await api.getTopDomains(this.itemsPerPage, offset, startTime, endTime)
-        this.topDomains = response.domains || []
+        const response = await api.getStatsPerDomainPerClient(this.itemsPerPage, offset, startTime, endTime, null)
+        this.stats = response.stats || []
         this.totalCount = response.total || 0
       } catch (error) {
         console.error('Error loading analytics data:', error)
-        this.topDomains = []
+        this.stats = []
         this.totalCount = 0
       } finally {
         this.loading = false
@@ -224,42 +226,41 @@ export default {
     }
   },
   computed: {
-    filteredTopDomains() {
-      let filtered = this.topDomains
+    filteredStats() {
+      let filtered = this.stats
       
-      // Filter out entries where domain is actually an IP address
-      // The API returns COALESCE(domain, destination_ip) so some entries are IPs
-      // IPs may have CIDR notation like /32, so we need to strip that
-      if (this.filterRfc1918 || this.filterMulticast) {
-        filtered = filtered.filter(item => {
-          const domainOrIp = item.domain
-          if (!domainOrIp) return true
-          
-          // Check if it's an IP address (may have /32 or other CIDR notation)
-          // IPv4: matches pattern like 192.168.1.1 or 192.168.1.1/32
-          // IPv6: matches pattern with colons, may have /128
-          const isIP = /^(\d{1,3}\.){3}\d{1,3}(\/\d+)?$/.test(domainOrIp) || /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(\/\d+)?$/i.test(domainOrIp)
-          
-          if (!isIP) {
-            // It's a domain name, not an IP - keep it
-            return true
+      // Filter out entries where domain is actually an IP address (we only want external domains)
+      // Also filter by RFC1918 and multicast if enabled
+      filtered = filtered.filter(item => {
+        const domainOrIp = item.domain
+        if (!domainOrIp) return false
+        
+        // Check if it's an IP address (may have /32 or other CIDR notation)
+        // IPv4: matches pattern like 192.168.1.1 or 192.168.1.1/32
+        // IPv6: matches pattern with colons, may have /128
+        const isIP = /^(\d{1,3}\.){3}\d{1,3}(\/\d+)?$/.test(domainOrIp) || /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(\/\d+)?$/i.test(domainOrIp)
+        
+        if (isIP) {
+          // It's an IP address - exclude it (we only want domains)
+          return false
+        }
+        
+        // It's a domain name - keep it for external domains
+        // Optionally filter client IPs by RFC1918/multicast if enabled
+        if (this.filterRfc1918 || this.filterMulticast) {
+          const clientIp = item.client_ip
+          if (clientIp) {
+            if (this.filterRfc1918 && this.isRfc1918(clientIp)) {
+              return false
+            }
+            if (this.filterMulticast && this.isMulticast(clientIp)) {
+              return false
+            }
           }
-          
-          // Strip CIDR notation (/32, /128, etc.) from IP for filtering
-          const ipWithoutCidr = domainOrIp.split('/')[0]
-          
-          // It's an IP address - apply filters
-          if (this.filterRfc1918 && this.isRfc1918(ipWithoutCidr)) {
-            return false
-          }
-          
-          if (this.filterMulticast && this.isMulticast(ipWithoutCidr)) {
-            return false
-          }
-          
-          return true
-        })
-      }
+        }
+        
+        return true
+      })
       
       return filtered
     },
