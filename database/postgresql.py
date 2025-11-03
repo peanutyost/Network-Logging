@@ -770,7 +770,7 @@ class PostgreSQLDatabase(DatabaseBase):
                         bytes_received = traffic_flows.bytes_received + EXCLUDED.bytes_received,
                         packet_count = traffic_flows.packet_count + EXCLUDED.packet_count,
                         last_update = CURRENT_TIMESTAMP,
-                        domain = COALESCE(traffic_flows.domain, EXCLUDED.domain),
+                        domain = COALESCE(EXCLUDED.domain, traffic_flows.domain),
                         is_orphaned = EXCLUDED.is_orphaned
                     RETURNING id
                 """, (

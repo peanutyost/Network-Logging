@@ -380,13 +380,19 @@ class SQLiteDatabase(DatabaseBase):
         
         try:
             cursor = self.conn.cursor()
+            # Use JSON functions to check if IP exists in the resolved_ips array
+            # This ensures exact IP matching, not partial matches
             cursor.execute("""
                 SELECT domain FROM dns_lookups
-                WHERE json_extract(resolved_ips, '$') LIKE ?
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM json_each(resolved_ips) AS ips
+                    WHERE ips.value = ?
+                )
                 AND last_seen >= ?
                 ORDER BY last_seen DESC
                 LIMIT 1
-            """, (f'%{ip}%', cutoff_date))
+            """, (ip, cutoff_date))
             
             result = cursor.fetchone()
             return result[0] if result else None
@@ -448,7 +454,7 @@ class SQLiteDatabase(DatabaseBase):
                     bytes_received = bytes_received + excluded.bytes_received,
                     packet_count = packet_count + excluded.packet_count,
                     last_update = CURRENT_TIMESTAMP,
-                    domain = COALESCE(domain, excluded.domain),
+                    domain = COALESCE(excluded.domain, domain),
                     is_orphaned = excluded.is_orphaned
             """, (
                 source_ip, destination_ip, destination_port, protocol,
