@@ -6,7 +6,8 @@ from datetime import datetime
 from api.models import (
     TrafficFlowResponse,
     DateRangeRequest,
-    TrafficVolumeDataPoint
+    TrafficVolumeDataPoint,
+    DomainClientStatsResponse
 )
 from api.dependencies import get_db
 from database.base import DatabaseBase
@@ -78,6 +79,50 @@ async def get_top_domains(
     
     return {
         "domains": results,
+        "total": total_count,
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@router.get("/stats-per-domain-per-client", response_model=dict)
+async def get_stats_per_domain_per_client(
+    limit: int = 100,
+    offset: int = 0,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    domain: Optional[str] = None,
+    db: DatabaseBase = Depends(get_db)
+):
+    """Get statistics aggregated by domain and client (source_ip) with pagination.
+    
+    Args:
+        limit: Number of results per page (default: 100, max: 1000)
+        offset: Number of results to skip (for pagination)
+        start_time: Optional start time filter
+        end_time: Optional end time filter
+        domain: Optional domain filter to get stats for specific domain
+    """
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be >= 0")
+    
+    results = db.get_stats_per_domain_per_client(
+        limit=limit, 
+        offset=offset, 
+        start_time=start_time, 
+        end_time=end_time,
+        domain=domain
+    )
+    total_count = db.get_stats_per_domain_per_client_count(
+        start_time=start_time, 
+        end_time=end_time,
+        domain=domain
+    )
+    
+    return {
+        "stats": results,
         "total": total_count,
         "limit": limit,
         "offset": offset

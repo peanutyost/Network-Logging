@@ -102,6 +102,18 @@ class TopDomainResponse(BaseModel):
     last_seen: datetime
 
 
+class DomainClientStatsResponse(BaseModel):
+    """Statistics per domain per client response model."""
+    domain: str
+    client_ip: str
+    flow_count: int
+    total_bytes: int
+    bytes_sent: int
+    bytes_received: int
+    total_packets: int
+    last_seen: datetime
+
+
 class TrafficVolumeDataPoint(BaseModel):
     """Traffic volume data point for time series."""
     timestamp: datetime

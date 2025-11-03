@@ -619,6 +619,104 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error getting top domains count: {e}")
             return 0
     
+    def get_stats_per_domain_per_client(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get statistics aggregated by domain and client (source_ip)."""
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                SELECT 
+                    COALESCE(domain, destination_ip) as domain,
+                    source_ip as client_ip,
+                    COUNT(*) as flow_count,
+                    COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
+                    COALESCE(SUM(bytes_sent), 0) as bytes_sent,
+                    COALESCE(SUM(bytes_received), 0) as bytes_received,
+                    COALESCE(SUM(packet_count), 0) as total_packets,
+                    MAX(last_update) as last_seen
+                FROM traffic_flows
+                WHERE 1=1
+            """
+            params = []
+            
+            if domain:
+                query += " AND domain = ?"
+                params.append(domain)
+            
+            if start_time:
+                query += " AND last_update >= ?"
+                params.append(start_time)
+            
+            if end_time:
+                query += " AND last_update <= ?"
+                params.append(end_time)
+            
+            query += """
+                GROUP BY COALESCE(domain, destination_ip), source_ip
+                ORDER BY total_bytes DESC
+                LIMIT ? OFFSET ?
+            """
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting stats per domain per client: {e}")
+            return []
+    
+    def get_stats_per_domain_per_client_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> int:
+        """Get total count of domain-client combinations for pagination."""
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            # SQLite doesn't support COUNT(DISTINCT (col1, col2)), need to use subquery
+            query = """
+                SELECT COUNT(*) as total
+                FROM (
+                    SELECT DISTINCT COALESCE(domain, destination_ip), source_ip
+                    FROM traffic_flows
+                    WHERE 1=1
+            """
+            params = []
+            
+            if domain:
+                query += " AND domain = ?"
+                params.append(domain)
+            
+            if start_time:
+                query += " AND last_update >= ?"
+                params.append(start_time)
+            
+            if end_time:
+                query += " AND last_update <= ?"
+                params.append(end_time)
+            
+            query += ")"
+            
+            cursor.execute(query, params)
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting stats per domain per client count: {e}")
+            return 0
+    
     def get_dashboard_stats(
         self,
         hours: int = 24

@@ -161,6 +161,48 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
+    def get_stats_per_domain_per_client(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get statistics aggregated by domain and client (source_ip).
+        
+        Args:
+            limit: Maximum number of results to return
+            offset: Number of results to skip (for pagination)
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            domain: Optional domain filter to get stats for specific domain
+            
+        Returns:
+            List of statistics per domain per client
+        """
+        pass
+    
+    @abstractmethod
+    def get_stats_per_domain_per_client_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> int:
+        """Get total count of domain-client combinations for pagination.
+        
+        Args:
+            start_time: Optional start time filter
+            end_time: Optional end time filter
+            domain: Optional domain filter
+            
+        Returns:
+            Total count of domain-client combinations
+        """
+        pass
+    
+    @abstractmethod
     def get_dashboard_stats(
         self,
         hours: int = 24

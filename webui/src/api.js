@@ -109,6 +109,18 @@ export default {
     return response.data
   },
 
+  async getStatsPerDomainPerClient(limit = 100, offset = 0, startTime = null, endTime = null, domain = null) {
+    let url = `/traffic/stats-per-domain-per-client?limit=${limit}&offset=${offset}`
+    const params = new URLSearchParams()
+    if (startTime) params.append('start_time', startTime.toISOString())
+    if (endTime) params.append('end_time', endTime.toISOString())
+    if (domain) params.append('domain', domain)
+    if (params.toString()) url += `&${params.toString()}`
+    
+    const response = await api.get(url)
+    return response.data
+  },
+
   // Threat Hunting
   async getOrphanedIPs(days = 7, startTime = null, endTime = null) {
     let url = `/threat/orphaned-ips?days=${days}`

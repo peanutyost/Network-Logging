@@ -1,26 +1,26 @@
 <template>
   <div class="traffic-table">
-    <table v-if="flows && flows.length > 0">
+    <table v-if="stats && stats.length > 0">
       <thead>
         <tr>
-          <th>Source IP</th>
-          <th>Destination IP</th>
-          <th>Port</th>
-          <th>Protocol</th>
+          <th>Client IP</th>
+          <th>Total Bytes</th>
           <th>Bytes Sent</th>
           <th>Bytes Received</th>
           <th>Packets</th>
+          <th>Flows</th>
+          <th>Last Seen</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="flow in flows" :key="flow.id">
-          <td>{{ flow.source_ip }}</td>
-          <td>{{ flow.destination_ip }}</td>
-          <td>{{ flow.destination_port }}</td>
-          <td>{{ flow.protocol }}</td>
-          <td>{{ formatBytes(flow.bytes_sent) }}</td>
-          <td>{{ formatBytes(flow.bytes_received) }}</td>
-          <td>{{ formatNumber(flow.packet_count) }}</td>
+        <tr v-for="stat in stats" :key="`${stat.domain}-${stat.client_ip}`">
+          <td>{{ stat.client_ip }}</td>
+          <td>{{ formatBytes(stat.total_bytes) }}</td>
+          <td>{{ formatBytes(stat.bytes_sent) }}</td>
+          <td>{{ formatBytes(stat.bytes_received) }}</td>
+          <td>{{ formatNumber(stat.total_packets) }}</td>
+          <td>{{ formatNumber(stat.flow_count) }}</td>
+          <td>{{ formatDate(stat.last_seen) }}</td>
         </tr>
       </tbody>
     </table>
@@ -30,6 +30,7 @@
 
 <script>
 import api from '../api.js'
+import { formatDateInTimezone, getTimezone } from '../utils/timezone.js'
 
 export default {
   name: 'TrafficTable',
@@ -49,11 +50,17 @@ export default {
   },
   data() {
     return {
-      flows: []
+      stats: [],
+      loading: false,
+      currentTimezone: getTimezone()
     }
   },
   mounted() {
     this.loadData()
+    window.addEventListener('timezone-changed', this.handleTimezoneChange)
+  },
+  beforeUnmount() {
+    window.removeEventListener('timezone-changed', this.handleTimezoneChange)
   },
   watch: {
     domain() {
@@ -67,12 +74,28 @@ export default {
     }
   },
   methods: {
+    handleTimezoneChange(event) {
+      this.currentTimezone = event.detail?.timezone || getTimezone()
+      this.$forceUpdate()
+    },
     async loadData() {
+      if (!this.domain) return
+      
+      this.loading = true
       try {
-        this.flows = await api.getTrafficByDomain(this.domain, this.startTime, this.endTime)
+        const response = await api.getStatsPerDomainPerClient(
+          1000, // Large limit to get all clients for this domain
+          0,
+          this.startTime,
+          this.endTime,
+          this.domain
+        )
+        this.stats = response.stats || []
       } catch (error) {
         console.error('Error loading traffic table data:', error)
-        this.flows = []
+        this.stats = []
+      } finally {
+        this.loading = false
       }
     },
     formatBytes(bytes) {
@@ -83,7 +106,10 @@ export default {
       return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
     },
     formatNumber(num) {
-      return new Intl.NumberFormat().format(num)
+      return new Intl.NumberFormat().format(num || 0)
+    },
+    formatDate(dateString, formatString = 'MMM dd, yyyy HH:mm') {
+      return formatDateInTimezone(dateString, formatString, this.currentTimezone)
     }
   }
 }

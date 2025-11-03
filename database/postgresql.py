@@ -946,6 +946,104 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
+    def get_stats_per_domain_per_client(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get statistics aggregated by domain and client (source_ip)."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                query = """
+                    SELECT 
+                        COALESCE(domain, destination_ip::text) as domain,
+                        source_ip as client_ip,
+                        COUNT(*) as flow_count,
+                        COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
+                        COALESCE(SUM(bytes_sent), 0) as bytes_sent,
+                        COALESCE(SUM(bytes_received), 0) as bytes_received,
+                        COALESCE(SUM(packet_count), 0) as total_packets,
+                        MAX(last_update) as last_seen
+                    FROM traffic_flows
+                    WHERE 1=1
+                """
+                params = []
+                
+                if domain:
+                    query += " AND domain = %s"
+                    params.append(domain)
+                
+                if start_time:
+                    query += " AND last_update >= %s"
+                    params.append(start_time)
+                
+                if end_time:
+                    query += " AND last_update <= %s"
+                    params.append(end_time)
+                
+                query += """
+                    GROUP BY COALESCE(domain, destination_ip::text), source_ip
+                    ORDER BY total_bytes DESC
+                    LIMIT %s OFFSET %s
+                """
+                params.extend([limit, offset])
+                
+                cur.execute(query, params)
+                results = cur.fetchall()
+                return [dict(r) for r in results]
+        except Exception as e:
+            logger.error(f"Error getting stats per domain per client: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
+    def get_stats_per_domain_per_client_count(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        domain: Optional[str] = None
+    ) -> int:
+        """Get total count of domain-client combinations for pagination."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # PostgreSQL supports COUNT(DISTINCT (col1, col2)) but we'll use a subquery for clarity
+                query = """
+                    SELECT COUNT(*) as total
+                    FROM (
+                        SELECT DISTINCT COALESCE(domain, destination_ip::text), source_ip
+                        FROM traffic_flows
+                        WHERE 1=1
+                """
+                params = []
+                
+                if domain:
+                    query += " AND domain = %s"
+                    params.append(domain)
+                
+                if start_time:
+                    query += " AND last_update >= %s"
+                    params.append(start_time)
+                
+                if end_time:
+                    query += " AND last_update <= %s"
+                    params.append(end_time)
+                
+                query += ")"
+                
+                cur.execute(query, params)
+                result = cur.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting stats per domain per client count: {e}")
+            return 0
+        finally:
+            self._return_connection(conn)
+    
     def get_dashboard_stats(
         self,
         hours: int = 24
