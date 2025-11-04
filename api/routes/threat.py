@@ -259,9 +259,10 @@ async def get_threat_whitelist(
     
     if indicator_type and indicator_type not in ['domain', 'ip']:
         raise HTTPException(status_code=400, detail="indicator_type must be 'domain' or 'ip'")
-    
+
     entries = db.get_threat_whitelist(limit=limit, indicator_type=indicator_type)
-    return entries
+    # Convert dict entries to Pydantic models to ensure proper datetime handling
+    return [ThreatWhitelistEntry(**entry) for entry in entries]
 
 
 @router.post("/whitelist", response_model=ThreatWhitelistEntry, status_code=status.HTTP_201_CREATED)
@@ -287,8 +288,9 @@ async def add_threat_whitelist(
             ip=request.ip,
             reason=request.reason
         )
-        # Get the created entry
-        entries = db.get_threat_whitelist(limit=1)
+        # Get the created entry by querying all entries and finding the one with matching ID
+        # We query a reasonable limit to ensure we get the newly created entry
+        entries = db.get_threat_whitelist(limit=100)
         entry = next((e for e in entries if e['id'] == whitelist_id), None)
         if entry:
             return ThreatWhitelistEntry(**entry)
