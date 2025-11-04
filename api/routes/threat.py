@@ -1,8 +1,10 @@
 """Threat hunting and analytics API routes."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 import logging
+import csv
+import io
 
 from api.models import (
     OrphanedIPResponse, 
@@ -375,6 +377,140 @@ async def add_rfc1918_whitelist(
         "skipped": skipped_count,
         "note": "Note: RFC 1918 private IPs are automatically excluded from threat alerts regardless of whitelist entries."
     }
+
+
+@router.get("/whitelist/export")
+async def export_whitelist_csv(
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Export threat whitelist entries as CSV."""
+    try:
+        # Get all whitelist entries (use a large limit to get all)
+        entries = db.get_threat_whitelist(limit=10000)
+        
+        # Create CSV content
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['id', 'indicator_type', 'domain', 'ip', 'reason', 'created_at'])
+        
+        # Write rows
+        for entry in entries:
+            writer.writerow([
+                entry.get('id', ''),
+                entry.get('indicator_type', ''),
+                entry.get('domain', ''),
+                entry.get('ip', ''),
+                entry.get('reason', ''),
+                entry.get('created_at', '')
+            ])
+        
+        # Get CSV content
+        csv_content = output.getvalue()
+        output.close()
+        
+        # Return CSV file
+        return Response(
+            content=csv_content,
+            media_type='text/csv',
+            headers={
+                'Content-Disposition': f'attachment; filename="threat_whitelist_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.csv"'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error exporting whitelist CSV: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error exporting whitelist: {str(e)}")
+
+
+@router.post("/whitelist/import")
+async def import_whitelist_csv(
+    file: UploadFile = File(...),
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Import threat whitelist entries from CSV file.
+    
+    CSV format should be:
+    - Header row: id, indicator_type, domain, ip, reason, created_at
+    - Data rows: values for each column
+    - The 'id' and 'created_at' columns are optional and will be ignored
+    - Required: indicator_type (must be 'domain' or 'ip')
+    - Required: either 'domain' or 'ip' based on indicator_type
+    """
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="File must be a CSV file")
+    
+    try:
+        # Read CSV content
+        content = await file.read()
+        csv_content = content.decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(csv_content))
+        
+        added_count = 0
+        skipped_count = 0
+        error_count = 0
+        errors = []
+        
+        for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 (header is row 1)
+            try:
+                indicator_type = row.get('indicator_type', '').strip().lower()
+                domain = row.get('domain', '').strip() if row.get('domain') else None
+                ip = row.get('ip', '').strip() if row.get('ip') else None
+                reason = row.get('reason', '').strip() if row.get('reason') else None
+                
+                # Validate indicator_type
+                if indicator_type not in ['domain', 'ip']:
+                    errors.append(f"Row {row_num}: Invalid indicator_type '{indicator_type}' (must be 'domain' or 'ip')")
+                    error_count += 1
+                    continue
+                
+                # Validate required fields
+                if indicator_type == 'domain' and not domain:
+                    errors.append(f"Row {row_num}: domain is required when indicator_type is 'domain'")
+                    error_count += 1
+                    continue
+                
+                if indicator_type == 'ip' and not ip:
+                    errors.append(f"Row {row_num}: ip is required when indicator_type is 'ip'")
+                    error_count += 1
+                    continue
+                
+                # Try to add entry
+                try:
+                    db.add_threat_whitelist(
+                        indicator_type=indicator_type,
+                        domain=domain,
+                        ip=ip,
+                        reason=reason
+                    )
+                    added_count += 1
+                except ValueError:
+                    # Entry already exists
+                    skipped_count += 1
+                except Exception as e:
+                    errors.append(f"Row {row_num}: Error adding entry - {str(e)}")
+                    error_count += 1
+                    
+            except Exception as e:
+                errors.append(f"Row {row_num}: Error processing row - {str(e)}")
+                error_count += 1
+        
+        return {
+            "success": True,
+            "message": f"Import completed. Added {added_count} entries, skipped {skipped_count} duplicates, {error_count} errors.",
+            "added": added_count,
+            "skipped": skipped_count,
+            "errors": error_count,
+            "error_details": errors[:10]  # Return first 10 errors
+        }
+        
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded")
+    except Exception as e:
+        logger.error(f"Error importing whitelist CSV: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error importing whitelist: {str(e)}")
 
 
 @router.post("/scan-historical", response_model=ThreatScanResponse)
