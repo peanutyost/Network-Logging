@@ -75,6 +75,11 @@ export default {
     return response.data
   },
 
+  async getDnsLookupsByIp(ip, limit = 100, days = 30) {
+    const response = await api.get(`/dns/ip/${encodeURIComponent(ip)}?limit=${limit}&days=${days}`)
+    return response.data
+  },
+
   // Traffic
   async getTrafficByDomain(domain, startTime = null, endTime = null) {
     let url = `/traffic/domain/${encodeURIComponent(domain)}`

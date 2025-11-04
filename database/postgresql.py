@@ -737,6 +737,34 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
+    def get_dns_lookups_by_ip(
+        self,
+        ip: str,
+        limit: int = 100,
+        days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """Get all DNS lookups that resolved to a specific IP address."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        conn = self._get_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT * FROM dns_lookups
+                    WHERE resolved_ips @> %s::jsonb
+                    AND last_seen >= %s
+                    ORDER BY last_seen DESC
+                    LIMIT %s
+                """, (json.dumps([ip]), cutoff_date, limit))
+                
+                results = cur.fetchall()
+                return [dict(r) for r in results]
+        except Exception as e:
+            logger.error(f"Error getting DNS lookups by IP: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
+    
     def search_domains(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for domains matching a query string."""
         conn = self._get_connection()

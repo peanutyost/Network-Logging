@@ -420,6 +420,55 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error getting domain by IP: {e}")
             return None
     
+    def get_dns_lookups_by_ip(
+        self,
+        ip: str,
+        limit: int = 100,
+        days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """Get all DNS lookups that resolved to a specific IP address."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            # Use JSON functions to check if IP exists in the resolved_ips array
+            cursor.execute("""
+                SELECT * FROM dns_lookups
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM json_each(resolved_ips) AS ips
+                    WHERE ips.value = ?
+                )
+                AND last_seen >= ?
+                ORDER BY last_seen DESC
+                LIMIT ?
+            """, (ip, cutoff_date, limit))
+            
+            rows = cursor.fetchall()
+            
+            # Convert rows to dicts
+            columns = [description[0] for description in cursor.description]
+            result = []
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+                # Parse JSON resolved_ips
+                if row_dict.get('resolved_ips'):
+                    try:
+                        row_dict['resolved_ips'] = json.loads(row_dict['resolved_ips'])
+                    except (json.JSONDecodeError, TypeError):
+                        row_dict['resolved_ips'] = []
+                else:
+                    row_dict['resolved_ips'] = []
+                result.append(row_dict)
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error getting DNS lookups by IP: {e}")
+            return []
+    
     def search_domains(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for domains matching a query string."""
         if not self.conn:

@@ -55,6 +55,25 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
+    def get_dns_lookups_by_ip(
+        self,
+        ip: str,
+        limit: int = 100,
+        days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """Get all DNS lookups that resolved to a specific IP address.
+        
+        Args:
+            ip: IP address to search for
+            limit: Maximum number of results to return (default: 100)
+            days: Number of days to look back (default: 30)
+        
+        Returns:
+            List of DNS lookup entries that resolved to this IP
+        """
+        pass
+    
+    @abstractmethod
     def search_domains(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for domains matching a query string."""
         pass

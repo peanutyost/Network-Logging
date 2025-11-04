@@ -2,11 +2,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from datetime import datetime
+import logging
 
 from api.models import DNSLookupResponse, DomainSearchRequest, WhoisResponse, DNSEventResponse
 from api.dependencies import get_db
 from database.base import DatabaseBase
 from whois_service import WhoisService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dns", tags=["DNS"])
 whois_service = WhoisService()
@@ -81,3 +84,34 @@ async def get_domain_whois(
         return cached
     raise HTTPException(status_code=404, detail="WHOIS data not found")
 
+
+@router.get("/ip/{ip}", response_model=List[DNSLookupResponse])
+async def get_dns_lookups_by_ip(
+    ip: str,
+    limit: int = 100,
+    days: int = 30,
+    db: DatabaseBase = Depends(get_db)
+):
+    """Get all DNS lookups that resolved to a specific IP address.
+    
+    Args:
+        ip: IP address to search for
+        limit: Maximum number of results to return (default: 100, max: 1000)
+        days: Number of days to look back (default: 30, max: 365)
+    """
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 365")
+    
+    # Basic IP validation
+    if not ip or not ip.strip():
+        raise HTTPException(status_code=400, detail="IP address is required")
+    
+    try:
+        results = db.get_dns_lookups_by_ip(ip=ip.strip(), limit=limit, days=days)
+        # Convert dict entries to Pydantic models
+        return [DNSLookupResponse(**entry) for entry in results]
+    except Exception as e:
+        logger.error(f"Error getting DNS lookups by IP: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error searching DNS lookups: {str(e)}")
