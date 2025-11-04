@@ -85,22 +85,26 @@ async def get_domain_whois(
     raise HTTPException(status_code=404, detail="WHOIS data not found")
 
 
-@router.get("/ip/{ip}", response_model=List[DNSLookupResponse])
+@router.get("/ip/{ip}")
 async def get_dns_lookups_by_ip(
     ip: str,
-    limit: int = 100,
+    limit: int = 1000,
+    offset: int = 0,
     days: int = 30,
     db: DatabaseBase = Depends(get_db)
 ):
-    """Get all DNS lookups that resolved to a specific IP address.
+    """Get all DNS lookups that resolved to a specific IP address with pagination.
     
     Args:
         ip: IP address to search for
-        limit: Maximum number of results to return (default: 100, max: 1000)
+        limit: Maximum number of results per page (default: 1000, max: 1000)
+        offset: Number of results to skip for pagination (default: 0)
         days: Number of days to look back (default: 30, max: 365)
     """
     if limit < 1 or limit > 1000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="days must be between 1 and 365")
     
@@ -109,9 +113,17 @@ async def get_dns_lookups_by_ip(
         raise HTTPException(status_code=400, detail="IP address is required")
     
     try:
-        results = db.get_dns_lookups_by_ip(ip=ip.strip(), limit=limit, days=days)
+        results = db.get_dns_lookups_by_ip(ip=ip.strip(), limit=limit, offset=offset, days=days)
+        total_count = db.get_dns_lookups_by_ip_count(ip=ip.strip(), days=days)
+        
         # Convert dict entries to Pydantic models
-        return [DNSLookupResponse(**entry) for entry in results]
+        return {
+            "results": [DNSLookupResponse(**entry) for entry in results],
+            "total": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + len(results)) < total_count
+        }
     except Exception as e:
         logger.error(f"Error getting DNS lookups by IP: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error searching DNS lookups: {str(e)}")

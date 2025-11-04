@@ -58,18 +58,37 @@ class DatabaseBase(ABC):
     def get_dns_lookups_by_ip(
         self,
         ip: str,
-        limit: int = 100,
+        limit: int = 1000,
+        offset: int = 0,
         days: int = 30
     ) -> List[Dict[str, Any]]:
         """Get all DNS lookups that resolved to a specific IP address.
         
         Args:
             ip: IP address to search for
-            limit: Maximum number of results to return (default: 100)
+            limit: Maximum number of results to return per page (default: 1000, max: 1000)
+            offset: Number of results to skip for pagination (default: 0)
             days: Number of days to look back (default: 30)
         
         Returns:
             List of DNS lookup entries that resolved to this IP
+        """
+        pass
+    
+    @abstractmethod
+    def get_dns_lookups_by_ip_count(
+        self,
+        ip: str,
+        days: int = 30
+    ) -> int:
+        """Get total count of DNS lookups that resolved to a specific IP address.
+        
+        Args:
+            ip: IP address to search for
+            days: Number of days to look back (default: 30)
+        
+        Returns:
+            Total count of DNS lookup entries that resolved to this IP
         """
         pass
     

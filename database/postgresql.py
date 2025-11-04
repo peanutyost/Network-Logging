@@ -740,10 +740,11 @@ class PostgreSQLDatabase(DatabaseBase):
     def get_dns_lookups_by_ip(
         self,
         ip: str,
-        limit: int = 100,
+        limit: int = 1000,
+        offset: int = 0,
         days: int = 30
     ) -> List[Dict[str, Any]]:
-        """Get all DNS lookups that resolved to a specific IP address."""
+        """Get all DNS lookups that resolved to a specific IP address with pagination."""
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
         conn = self._get_connection()
@@ -754,14 +755,39 @@ class PostgreSQLDatabase(DatabaseBase):
                     WHERE resolved_ips @> %s::jsonb
                     AND last_seen >= %s
                     ORDER BY last_seen DESC
-                    LIMIT %s
-                """, (json.dumps([ip]), cutoff_date, limit))
+                    LIMIT %s OFFSET %s
+                """, (json.dumps([ip]), cutoff_date, limit, offset))
                 
                 results = cur.fetchall()
                 return [dict(r) for r in results]
         except Exception as e:
             logger.error(f"Error getting DNS lookups by IP: {e}")
             return []
+        finally:
+            self._return_connection(conn)
+    
+    def get_dns_lookups_by_ip_count(
+        self,
+        ip: str,
+        days: int = 30
+    ) -> int:
+        """Get total count of DNS lookups that resolved to a specific IP address."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*) FROM dns_lookups
+                    WHERE resolved_ips @> %s::jsonb
+                    AND last_seen >= %s
+                """, (json.dumps([ip]), cutoff_date))
+                
+                result = cur.fetchone()
+                return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting DNS lookups by IP count: {e}")
+            return 0
         finally:
             self._return_connection(conn)
     

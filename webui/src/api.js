@@ -75,8 +75,8 @@ export default {
     return response.data
   },
 
-  async getDnsLookupsByIp(ip, limit = 100, days = 30) {
-    const response = await api.get(`/dns/ip/${encodeURIComponent(ip)}?limit=${limit}&days=${days}`)
+  async getDnsLookupsByIp(ip, limit = 1000, offset = 0, days = 30) {
+    const response = await api.get(`/dns/ip/${encodeURIComponent(ip)}?limit=${limit}&offset=${offset}&days=${days}`)
     return response.data
   },
 

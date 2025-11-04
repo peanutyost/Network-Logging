@@ -423,10 +423,11 @@ class SQLiteDatabase(DatabaseBase):
     def get_dns_lookups_by_ip(
         self,
         ip: str,
-        limit: int = 100,
+        limit: int = 1000,
+        offset: int = 0,
         days: int = 30
     ) -> List[Dict[str, Any]]:
-        """Get all DNS lookups that resolved to a specific IP address."""
+        """Get all DNS lookups that resolved to a specific IP address with pagination."""
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
         if not self.conn:
@@ -444,8 +445,8 @@ class SQLiteDatabase(DatabaseBase):
                 )
                 AND last_seen >= ?
                 ORDER BY last_seen DESC
-                LIMIT ?
-            """, (ip, cutoff_date, limit))
+                LIMIT ? OFFSET ?
+            """, (ip, cutoff_date, limit, offset))
             
             rows = cursor.fetchall()
             
@@ -468,6 +469,35 @@ class SQLiteDatabase(DatabaseBase):
         except Exception as e:
             logger.error(f"Error getting DNS lookups by IP: {e}")
             return []
+    
+    def get_dns_lookups_by_ip_count(
+        self,
+        ip: str,
+        days: int = 30
+    ) -> int:
+        """Get total count of DNS lookups that resolved to a specific IP address."""
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        if not self.conn:
+            self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM dns_lookups
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM json_each(resolved_ips) AS ips
+                    WHERE ips.value = ?
+                )
+                AND last_seen >= ?
+            """, (ip, cutoff_date))
+            
+            result = cursor.fetchone()
+            return result[0] if result else 0
+        except Exception as e:
+            logger.error(f"Error getting DNS lookups by IP count: {e}")
+            return 0
     
     def search_domains(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for domains matching a query string."""

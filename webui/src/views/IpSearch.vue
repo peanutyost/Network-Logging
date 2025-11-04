@@ -23,17 +23,6 @@
             class="days-input"
           />
         </label>
-        <label>
-          Limit:
-          <input
-            type="number"
-            v-model.number="limit"
-            min="1"
-            max="1000"
-            @change="search"
-            class="limit-input"
-          />
-        </label>
       </div>
     </div>
 
@@ -42,7 +31,9 @@
 
     <div v-if="results.length > 0" class="results-section">
       <h2>DNS Lookups for {{ searchIp }}</h2>
-      <p class="result-count">Found {{ results.length }} DNS lookup{{ results.length !== 1 ? 's' : '' }}</p>
+      <p class="result-count">
+        Showing {{ startIndex }} - {{ endIndex }} of {{ totalCount }} DNS lookup{{ totalCount !== 1 ? 's' : '' }}
+      </p>
       
       <table class="results-table">
         <thead>
@@ -88,6 +79,41 @@
           </tr>
         </tbody>
       </table>
+      
+      <!-- Pagination Controls -->
+      <div v-if="totalPages > 1" class="pagination">
+        <button 
+          @click="goToPage(1)" 
+          :disabled="currentPage === 1"
+          class="page-button"
+        >
+          First
+        </button>
+        <button 
+          @click="goToPage(currentPage - 1)" 
+          :disabled="currentPage === 1"
+          class="page-button"
+        >
+          Previous
+        </button>
+        <span class="page-info">
+          Page {{ currentPage }} of {{ totalPages }}
+        </span>
+        <button 
+          @click="goToPage(currentPage + 1)" 
+          :disabled="currentPage === totalPages"
+          class="page-button"
+        >
+          Next
+        </button>
+        <button 
+          @click="goToPage(totalPages)" 
+          :disabled="currentPage === totalPages"
+          class="page-button"
+        >
+          Last
+        </button>
+      </div>
     </div>
 
     <div v-else-if="!loading && searchIp && hasSearched" class="no-results">
@@ -109,9 +135,23 @@ export default {
       loading: false,
       error: null,
       days: 30,
-      limit: 100,
+      limit: 1000, // Fixed at 1000 per page
+      currentPage: 1,
+      totalCount: 0,
       hasSearched: false,
       currentTimezone: getTimezone()
+    }
+  },
+  computed: {
+    totalPages() {
+      return Math.ceil(this.totalCount / this.limit)
+    },
+    startIndex() {
+      return this.totalCount > 0 ? (this.currentPage - 1) * this.limit + 1 : 0
+    },
+    endIndex() {
+      const end = this.currentPage * this.limit
+      return end > this.totalCount ? this.totalCount : end
     }
   },
   mounted() {
@@ -145,6 +185,24 @@ export default {
         this.error = 'Please enter a valid IP address (IPv4 or IPv6)'
         this.results = []
         this.hasSearched = false
+        this.totalCount = 0
+        this.currentPage = 1
+        return
+      }
+      
+      // Reset to first page when searching
+      this.currentPage = 1
+      await this.loadPage()
+    },
+    async loadPage() {
+      if (!this.searchIp || !this.searchIp.trim()) {
+        return
+      }
+      
+      const ip = this.searchIp.trim()
+      
+      // Basic IP validation
+      if (!this.isValidIp(ip)) {
         return
       }
       
@@ -153,13 +211,23 @@ export default {
       this.hasSearched = true
       
       try {
-        this.results = await api.getDnsLookupsByIp(ip, this.limit, this.days)
+        const offset = (this.currentPage - 1) * this.limit
+        const response = await api.getDnsLookupsByIp(ip, this.limit, offset, this.days)
+        this.results = response.results || []
+        this.totalCount = response.total || 0
       } catch (e) {
         console.error('Error searching DNS lookups by IP', e)
         this.error = e.response?.data?.detail || 'Error searching DNS lookups'
         this.results = []
+        this.totalCount = 0
       } finally {
         this.loading = false
+      }
+    },
+    goToPage(page) {
+      if (page >= 1 && page <= this.totalPages) {
+        this.currentPage = page
+        this.loadPage()
       }
     },
     isValidIp(ip) {
@@ -346,6 +414,40 @@ export default {
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  padding: 1rem;
+}
+
+.page-button {
+  padding: 0.5rem 1rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.page-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.page-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.page-info {
+  font-weight: 500;
+  color: #333;
 }
 </style>
 
