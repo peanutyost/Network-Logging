@@ -1011,7 +1011,23 @@ class PostgreSQLDatabase(DatabaseBase):
                 
                 cur.execute(query, params)
                 results = cur.fetchall()
-                return [dict(r) for r in results]
+                # Convert to dicts and ensure numeric types are integers (PostgreSQL SUM returns NUMERIC)
+                converted = []
+                for r in results:
+                    row_dict = dict(r)
+                    # Ensure numeric fields are integers
+                    if 'bytes_sent' in row_dict:
+                        row_dict['bytes_sent'] = int(row_dict['bytes_sent'] or 0)
+                    if 'bytes_received' in row_dict:
+                        row_dict['bytes_received'] = int(row_dict['bytes_received'] or 0)
+                    if 'total_bytes' in row_dict:
+                        row_dict['total_bytes'] = int(row_dict['total_bytes'] or 0)
+                    if 'total_packets' in row_dict:
+                        row_dict['total_packets'] = int(row_dict['total_packets'] or 0)
+                    if 'query_count' in row_dict:
+                        row_dict['query_count'] = int(row_dict['query_count'] or 0)
+                    converted.append(row_dict)
+                return converted
         except Exception as e:
             logger.error(f"Error getting top domains: {e}")
             return []
@@ -1105,7 +1121,23 @@ class PostgreSQLDatabase(DatabaseBase):
                 
                 cur.execute(query, params)
                 results = cur.fetchall()
-                return [dict(r) for r in results]
+                # Convert to dicts and ensure numeric types are integers (PostgreSQL SUM returns NUMERIC)
+                converted = []
+                for r in results:
+                    row_dict = dict(r)
+                    # Ensure numeric fields are integers
+                    if 'bytes_sent' in row_dict:
+                        row_dict['bytes_sent'] = int(row_dict['bytes_sent'] or 0)
+                    if 'bytes_received' in row_dict:
+                        row_dict['bytes_received'] = int(row_dict['bytes_received'] or 0)
+                    if 'total_bytes' in row_dict:
+                        row_dict['total_bytes'] = int(row_dict['total_bytes'] or 0)
+                    if 'total_packets' in row_dict:
+                        row_dict['total_packets'] = int(row_dict['total_packets'] or 0)
+                    if 'flow_count' in row_dict:
+                        row_dict['flow_count'] = int(row_dict['flow_count'] or 0)
+                    converted.append(row_dict)
+                return converted
         except Exception as e:
             logger.error(f"Error getting stats per domain per client: {e}")
             return []

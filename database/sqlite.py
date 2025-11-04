@@ -722,7 +722,15 @@ class SQLiteDatabase(DatabaseBase):
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            return [dict(r) for r in rows]
+            
+            # Convert rows to dicts
+            columns = [description[0] for description in cursor.description]
+            result = []
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+                result.append(row_dict)
+            
+            return result
         except Exception as e:
             logger.error(f"Error getting top domains: {e}")
             return []
@@ -816,7 +824,15 @@ class SQLiteDatabase(DatabaseBase):
             
             cursor.execute(query, params)
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            
+            # Convert rows to dicts
+            columns = [description[0] for description in cursor.description]
+            result = []
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+                result.append(row_dict)
+            
+            return result
         except Exception as e:
             logger.error(f"Error getting stats per domain per client: {e}")
             return []
