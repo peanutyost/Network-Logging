@@ -94,7 +94,10 @@ async def get_stats_per_domain_per_client(
     domain: Optional[str] = None,
     db: DatabaseBase = Depends(get_db)
 ):
-    """Get statistics aggregated by domain and client (source_ip) with pagination.
+    """Get statistics aggregated by flows (source_ip, destination_ip, destination_port, protocol) with pagination.
+    
+    Groups traffic by flows (bidirectional) and counts both sent and received bytes.
+    Each result represents a unique flow.
     
     Args:
         limit: Number of results per page (default: 100, max: 1000)

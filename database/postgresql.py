@@ -954,7 +954,10 @@ class PostgreSQLDatabase(DatabaseBase):
         end_time: Optional[datetime] = None,
         domain: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Get statistics aggregated by domain and client (source_ip)."""
+        """Get statistics aggregated by flows (source_ip, destination_ip, destination_port, protocol).
+        
+        Groups traffic by flows (bidirectional) and counts both sent and received bytes.
+        """
         conn = self._get_connection()
         try:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -962,6 +965,9 @@ class PostgreSQLDatabase(DatabaseBase):
                     SELECT 
                         COALESCE(domain, destination_ip::text) as domain,
                         source_ip as client_ip,
+                        destination_ip as server_ip,
+                        destination_port as server_port,
+                        protocol,
                         COUNT(*) as flow_count,
                         COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
                         COALESCE(SUM(bytes_sent), 0) as bytes_sent,
@@ -986,7 +992,7 @@ class PostgreSQLDatabase(DatabaseBase):
                     params.append(end_time)
                 
                 query += """
-                    GROUP BY COALESCE(domain, destination_ip::text), source_ip
+                    GROUP BY source_ip, destination_ip, destination_port, protocol, COALESCE(domain, destination_ip::text)
                     ORDER BY total_bytes DESC
                     LIMIT %s OFFSET %s
                 """
@@ -1007,15 +1013,15 @@ class PostgreSQLDatabase(DatabaseBase):
         end_time: Optional[datetime] = None,
         domain: Optional[str] = None
     ) -> int:
-        """Get total count of domain-client combinations for pagination."""
+        """Get total count of flows (source_ip, destination_ip, destination_port, protocol) for pagination."""
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
-                # PostgreSQL supports COUNT(DISTINCT (col1, col2)) but we'll use a subquery for clarity
+                # Count distinct flows (source_ip, destination_ip, destination_port, protocol)
                 query = """
                     SELECT COUNT(*) as total
                     FROM (
-                        SELECT DISTINCT COALESCE(domain, destination_ip::text), source_ip
+                        SELECT DISTINCT source_ip, destination_ip, destination_port, protocol
                         FROM traffic_flows
                         WHERE 1=1
                 """
