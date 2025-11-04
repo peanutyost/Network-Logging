@@ -180,6 +180,13 @@ export default {
   mounted() {
     this.updateTimeRange()
     window.addEventListener('timezone-changed', this.handleTimezoneChange)
+    
+    // Check if domain is provided in query params
+    const domainParam = this.$route.query.domain
+    if (domainParam) {
+      this.searchQuery = domainParam
+      this.search()
+    }
   },
   beforeUnmount() {
     window.removeEventListener('timezone-changed', this.handleTimezoneChange)
