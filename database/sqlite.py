@@ -89,15 +89,24 @@ class SQLiteDatabase(DatabaseBase):
                     first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     last_update TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     is_orphaned INTEGER NOT NULL DEFAULT 0,
+                    is_abnormal INTEGER NOT NULL DEFAULT 0,
                     UNIQUE(source_ip, destination_ip, destination_port, protocol)
                 )
             """)
+            
+            # Add is_abnormal column if it doesn't exist (migration)
+            cursor.execute("""
+                SELECT COUNT(*) FROM pragma_table_info('traffic_flows') WHERE name='is_abnormal'
+            """)
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("ALTER TABLE traffic_flows ADD COLUMN is_abnormal INTEGER NOT NULL DEFAULT 0")
             
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_source ON traffic_flows(source_ip)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_dest ON traffic_flows(destination_ip)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_dest_port ON traffic_flows(destination_port)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_domain ON traffic_flows(domain)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_orphaned ON traffic_flows(is_orphaned)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_abnormal ON traffic_flows(is_abnormal)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_flow_timestamp ON traffic_flows(last_update)")
             
             # Threat Indicators table
@@ -371,8 +380,11 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error getting DNS lookup: {e}")
             return None
     
-    def get_domain_by_ip(self, ip: str, days: int = 7) -> Optional[str]:
-        """Get domain name for an IP address if it was resolved in the last N days."""
+    def get_domain_by_ip(self, ip: str, days: int = 7, before_timestamp: Optional[datetime] = None) -> Optional[str]:
+        """Get domain name for an IP address if it was resolved in the last N days.
+        
+        If before_timestamp is provided, only returns DNS records that occurred before that time.
+        """
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
         if not self.conn:
@@ -382,7 +394,8 @@ class SQLiteDatabase(DatabaseBase):
             cursor = self.conn.cursor()
             # Use JSON functions to check if IP exists in the resolved_ips array
             # This ensures exact IP matching, not partial matches
-            cursor.execute("""
+            # If before_timestamp is provided, only look for DNS records that occurred before the flow started
+            query = """
                 SELECT domain FROM dns_lookups
                 WHERE EXISTS (
                     SELECT 1 
@@ -390,9 +403,16 @@ class SQLiteDatabase(DatabaseBase):
                     WHERE ips.value = ?
                 )
                 AND last_seen >= ?
-                ORDER BY last_seen DESC
-                LIMIT 1
-            """, (ip, cutoff_date))
+            """
+            params = [ip, cutoff_date]
+            
+            if before_timestamp:
+                query += " AND first_seen <= ?"
+                params.append(before_timestamp)
+            
+            query += " ORDER BY first_seen DESC LIMIT 1"
+            
+            cursor.execute(query, params)
             
             result = cursor.fetchone()
             return result[0] if result else None
@@ -429,11 +449,19 @@ class SQLiteDatabase(DatabaseBase):
         bytes_sent: int,
         bytes_received: int,
         packet_count: int,
-        domain: Optional[str] = None
+        domain: Optional[str] = None,
+        first_seen: Optional[datetime] = None,
+        is_abnormal: bool = False
     ) -> int:
-        """Insert or update a traffic flow entry."""
-        if not domain:
-            domain = self.get_domain_by_ip(destination_ip, config.orphaned_ip_days)
+        """Insert or update a traffic flow entry.
+        
+        source_ip is RFC1918 client IP (or source IP for abnormal flows), destination_ip is public server IP.
+        Domain is looked up from DNS records that occurred before first_seen.
+        """
+        if not domain and not is_abnormal:
+            # Look up domain from DNS records that occurred before the flow started
+            # Skip domain lookup for abnormal flows
+            domain = self.get_domain_by_ip(destination_ip, config.orphaned_ip_days, before_timestamp=first_seen)
         
         is_orphaned = 1 if domain is None else 0
         
@@ -442,24 +470,52 @@ class SQLiteDatabase(DatabaseBase):
         
         try:
             cursor = self.conn.cursor()
-            cursor.execute("""
-                INSERT INTO traffic_flows (
+            # Use first_seen if provided, otherwise use current timestamp
+            if first_seen:
+                cursor.execute("""
+                    INSERT INTO traffic_flows (
+                        source_ip, destination_ip, destination_port, protocol,
+                        domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal, first_seen
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
+                    DO UPDATE SET
+                        bytes_sent = bytes_sent + excluded.bytes_sent,
+                        bytes_received = bytes_received + excluded.bytes_received,
+                        packet_count = packet_count + excluded.packet_count,
+                        last_update = CURRENT_TIMESTAMP,
+                        domain = COALESCE(excluded.domain, domain),
+                        is_orphaned = excluded.is_orphaned,
+                        is_abnormal = excluded.is_abnormal,
+                        first_seen = CASE 
+                            WHEN excluded.first_seen < traffic_flows.first_seen 
+                            THEN excluded.first_seen 
+                            ELSE traffic_flows.first_seen 
+                        END
+                """, (
                     source_ip, destination_ip, destination_port, protocol,
-                    domain, bytes_sent, bytes_received, packet_count, is_orphaned
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
-                DO UPDATE SET
-                    bytes_sent = bytes_sent + excluded.bytes_sent,
-                    bytes_received = bytes_received + excluded.bytes_received,
-                    packet_count = packet_count + excluded.packet_count,
-                    last_update = CURRENT_TIMESTAMP,
-                    domain = COALESCE(excluded.domain, domain),
-                    is_orphaned = excluded.is_orphaned
-            """, (
-                source_ip, destination_ip, destination_port, protocol,
-                domain, bytes_sent, bytes_received, packet_count, is_orphaned
-            ))
+                    domain, bytes_sent, bytes_received, packet_count, is_orphaned, 1 if is_abnormal else 0, first_seen
+                ))
+            else:
+                cursor.execute("""
+                    INSERT INTO traffic_flows (
+                        source_ip, destination_ip, destination_port, protocol,
+                        domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
+                    DO UPDATE SET
+                        bytes_sent = bytes_sent + excluded.bytes_sent,
+                        bytes_received = bytes_received + excluded.bytes_received,
+                        packet_count = packet_count + excluded.packet_count,
+                        last_update = CURRENT_TIMESTAMP,
+                        domain = COALESCE(excluded.domain, domain),
+                        is_orphaned = excluded.is_orphaned,
+                        is_abnormal = excluded.is_abnormal
+                """, (
+                    source_ip, destination_ip, destination_port, protocol,
+                    domain, bytes_sent, bytes_received, packet_count, is_orphaned, 1 if is_abnormal else 0
+                ))
             
             self.conn.commit()
             return cursor.lastrowid

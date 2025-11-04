@@ -41,8 +41,17 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
-    def get_domain_by_ip(self, ip: str, days: int = 7) -> Optional[str]:
-        """Get domain name for an IP address if it was resolved in the last N days."""
+    def get_domain_by_ip(self, ip: str, days: int = 7, before_timestamp: Optional[datetime] = None) -> Optional[str]:
+        """Get domain name for an IP address if it was resolved in the last N days.
+        
+        Args:
+            ip: IP address to look up
+            days: Number of days to look back (default: 7)
+            before_timestamp: Only return DNS records that occurred before this timestamp (for chronological lookup)
+        
+        Returns:
+            Domain name if found, None otherwise
+        """
         pass
     
     @abstractmethod
@@ -97,9 +106,24 @@ class DatabaseBase(ABC):
         bytes_sent: int,
         bytes_received: int,
         packet_count: int,
-        domain: Optional[str] = None
+        domain: Optional[str] = None,
+        first_seen: Optional[datetime] = None,
+        is_abnormal: bool = False
     ) -> int:
-        """Insert or update a traffic flow entry."""
+        """Insert or update a traffic flow entry.
+        
+        Args:
+            source_ip: RFC1918 client IP (or source IP for abnormal flows)
+            destination_ip: Public server IP (or destination IP for abnormal flows)
+            destination_port: Server port
+            protocol: Protocol (TCP/UDP)
+            bytes_sent: Bytes sent from client to server
+            bytes_received: Bytes received from server to client
+            packet_count: Total packet count
+            domain: Optional domain (if None, will be looked up from DNS records)
+            first_seen: Timestamp of first packet in flow (for domain lookup)
+            is_abnormal: True if both source and destination are external (not RFC1918)
+        """
         pass
     
     @abstractmethod

@@ -125,9 +125,18 @@ class PostgreSQLDatabase(DatabaseBase):
                         first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         last_update TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         is_orphaned BOOLEAN NOT NULL DEFAULT FALSE,
+                        is_abnormal BOOLEAN NOT NULL DEFAULT FALSE,
                         UNIQUE(source_ip, destination_ip, destination_port, protocol)
                     )
                 """)
+                
+                # Add is_abnormal column if it doesn't exist (migration)
+                cur.execute("""
+                    SELECT COUNT(*) FROM information_schema.columns 
+                    WHERE table_name='traffic_flows' AND column_name='is_abnormal'
+                """)
+                if cur.fetchone()[0] == 0:
+                    cur.execute("ALTER TABLE traffic_flows ADD COLUMN is_abnormal BOOLEAN NOT NULL DEFAULT FALSE")
                 
                 # Create indexes
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_source ON traffic_flows(source_ip)")
@@ -135,6 +144,7 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_dest_port ON traffic_flows(destination_port)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_domain ON traffic_flows(domain)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_orphaned ON traffic_flows(is_orphaned)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_abnormal ON traffic_flows(is_abnormal)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_flow_timestamp ON traffic_flows(last_update)")
                 
                 # WHOIS Data table
@@ -694,20 +704,30 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
-    def get_domain_by_ip(self, ip: str, days: int = 7) -> Optional[str]:
-        """Get domain name for an IP address if it was resolved in the last N days."""
+    def get_domain_by_ip(self, ip: str, days: int = 7, before_timestamp: Optional[datetime] = None) -> Optional[str]:
+        """Get domain name for an IP address if it was resolved in the last N days.
+        
+        If before_timestamp is provided, only returns DNS records that occurred before that time.
+        """
         cutoff_date = datetime.utcnow() - timedelta(days=days)
         
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("""
+                query = """
                     SELECT domain FROM dns_lookups
                     WHERE resolved_ips @> %s::jsonb
                     AND last_seen >= %s
-                    ORDER BY last_seen DESC
-                    LIMIT 1
-                """, (json.dumps([ip]), cutoff_date))
+                """
+                params = [json.dumps([ip]), cutoff_date]
+                
+                if before_timestamp:
+                    query += " AND first_seen <= %s"
+                    params.append(before_timestamp)
+                
+                query += " ORDER BY first_seen DESC LIMIT 1"
+                
+                cur.execute(query, params)
                 
                 result = cur.fetchone()
                 return result[0] if result else None
@@ -746,37 +766,68 @@ class PostgreSQLDatabase(DatabaseBase):
         bytes_sent: int,
         bytes_received: int,
         packet_count: int,
-        domain: Optional[str] = None
+        domain: Optional[str] = None,
+        first_seen: Optional[datetime] = None,
+        is_abnormal: bool = False
     ) -> int:
-        """Insert or update a traffic flow entry."""
-        # Check if domain exists for this IP
-        if not domain:
-            domain = self.get_domain_by_ip(destination_ip, config.orphaned_ip_days)
+        """Insert or update a traffic flow entry.
+        
+        source_ip is RFC1918 client IP (or source IP for abnormal flows), destination_ip is public server IP.
+        Domain is looked up from DNS records that occurred before first_seen.
+        """
+        # Look up domain from DNS records that occurred before the flow started
+        # Skip domain lookup for abnormal flows
+        if not domain and not is_abnormal:
+            domain = self.get_domain_by_ip(destination_ip, config.orphaned_ip_days, before_timestamp=first_seen)
         
         is_orphaned = domain is None
         
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("""
-                    INSERT INTO traffic_flows (
+                if first_seen:
+                    cur.execute("""
+                        INSERT INTO traffic_flows (
+                            source_ip, destination_ip, destination_port, protocol,
+                            domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal, first_seen
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
+                        DO UPDATE SET
+                            bytes_sent = traffic_flows.bytes_sent + EXCLUDED.bytes_sent,
+                            bytes_received = traffic_flows.bytes_received + EXCLUDED.bytes_received,
+                            packet_count = traffic_flows.packet_count + EXCLUDED.packet_count,
+                            last_update = CURRENT_TIMESTAMP,
+                            domain = COALESCE(EXCLUDED.domain, traffic_flows.domain),
+                            is_orphaned = EXCLUDED.is_orphaned,
+                            is_abnormal = EXCLUDED.is_abnormal,
+                            first_seen = LEAST(EXCLUDED.first_seen, traffic_flows.first_seen)
+                        RETURNING id
+                    """, (
                         source_ip, destination_ip, destination_port, protocol,
-                        domain, bytes_sent, bytes_received, packet_count, is_orphaned
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
-                    DO UPDATE SET
-                        bytes_sent = traffic_flows.bytes_sent + EXCLUDED.bytes_sent,
-                        bytes_received = traffic_flows.bytes_received + EXCLUDED.bytes_received,
-                        packet_count = traffic_flows.packet_count + EXCLUDED.packet_count,
-                        last_update = CURRENT_TIMESTAMP,
-                        domain = COALESCE(EXCLUDED.domain, traffic_flows.domain),
-                        is_orphaned = EXCLUDED.is_orphaned
-                    RETURNING id
-                """, (
-                    source_ip, destination_ip, destination_port, protocol,
-                    domain, bytes_sent, bytes_received, packet_count, is_orphaned
-                ))
+                        domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal, first_seen
+                    ))
+                else:
+                    cur.execute("""
+                        INSERT INTO traffic_flows (
+                            source_ip, destination_ip, destination_port, protocol,
+                            domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
+                        DO UPDATE SET
+                            bytes_sent = traffic_flows.bytes_sent + EXCLUDED.bytes_sent,
+                            bytes_received = traffic_flows.bytes_received + EXCLUDED.bytes_received,
+                            packet_count = traffic_flows.packet_count + EXCLUDED.packet_count,
+                            last_update = CURRENT_TIMESTAMP,
+                            domain = COALESCE(EXCLUDED.domain, traffic_flows.domain),
+                            is_orphaned = EXCLUDED.is_orphaned,
+                            is_abnormal = EXCLUDED.is_abnormal
+                        RETURNING id
+                    """, (
+                        source_ip, destination_ip, destination_port, protocol,
+                        domain, bytes_sent, bytes_received, packet_count, is_orphaned, is_abnormal
+                    ))
                 
                 result = cur.fetchone()
                 conn.commit()
