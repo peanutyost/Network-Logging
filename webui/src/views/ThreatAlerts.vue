@@ -81,6 +81,14 @@
             >
               {{ resolving === alert.id ? 'Resolving...' : 'Mark as Resolved' }}
             </button>
+            <button 
+              v-if="isAdmin"
+              @click="addToWhitelist(alert)" 
+              class="btn btn-success"
+              :disabled="whitelisting === alert.id"
+            >
+              {{ whitelisting === alert.id ? 'Adding...' : 'Add to Whitelist' }}
+            </button>
           </div>
         </div>
       </div>
@@ -99,6 +107,7 @@ export default {
       alerts: [],
       loading: false,
       resolving: null,
+      whitelisting: null,
       showResolved: false,
       currentTimezone: getTimezone()
     }
@@ -109,6 +118,9 @@ export default {
     },
     unresolvedCount() {
       return this.alerts.filter(a => !a.resolved).length
+    },
+    isAdmin() {
+      return this.$root.isAdmin || false
     }
   },
   mounted() {
@@ -159,6 +171,30 @@ export default {
         alert('Error resolving alert. Please try again.')
       } finally {
         this.resolving = null
+      }
+    },
+    async addToWhitelist(alert) {
+      const indicator = alert.domain || alert.ip
+      if (!confirm(`Add ${indicator} to whitelist?`)) {
+        return
+      }
+      
+      this.whitelisting = alert.id
+      try {
+        const entry = {
+          indicator_type: alert.indicator_type,
+          domain: alert.domain || null,
+          ip: alert.ip || null,
+          reason: `Added from threat alert #${alert.id}`
+        }
+        await api.addThreatWhitelist(entry)
+        alert(`Successfully added ${indicator} to whitelist!`)
+      } catch (error) {
+        console.error('Error adding to whitelist:', error)
+        const errorMsg = error.response?.data?.detail || 'Error adding to whitelist. Please try again.'
+        alert(errorMsg)
+      } finally {
+        this.whitelisting = null
       }
     },
     formatDate(dateString) {
@@ -335,6 +371,8 @@ export default {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid #e0e0e0;
+  display: flex;
+  gap: 0.5rem;
 }
 
 .btn {
@@ -363,6 +401,15 @@ export default {
 
 .btn-secondary:hover {
   background: #545b62;
+}
+
+.btn-success {
+  background: #28a745;
+  color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #218838;
 }
 
 .btn:disabled {
