@@ -108,17 +108,22 @@ class TrafficMonitor:
                 server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
                 is_outbound_packet = False
             elif source_is_local and dest_is_local:
-                # Both local - use source as client (RFC1918)
+                # Both local - determine direction based on port (ephemeral ports are typically >= 49152)
+                # The port that's NOT ephemeral is likely the server
+                # For local-to-local, we'll use source as client for consistency
                 client_ip = source_ip
                 server_ip = dest_ip
                 server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
-                is_outbound_packet = True
+                # If source port is ephemeral (>= 49152) and dest port is not, it's likely outbound
+                # Otherwise, assume it's outbound (source -> dest)
+                is_outbound_packet = (source_port >= 49152 and dest_port < 49152) or (source_port < dest_port)
             else:
                 # Both external - mark as abnormal flow
                 # For abnormal flows, we can't normalize to client/server, so use source/dest as-is
                 client_ip = source_ip
                 server_ip = dest_ip
                 server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
+                # For external-to-external, assume source -> dest is outbound
                 is_outbound_packet = True
                 is_abnormal = True
             
@@ -127,13 +132,31 @@ class TrafficMonitor:
             # Only use is_abnormal flag for storage, not for flow key matching
             flow_key = (client_ip, server_ip, server_port, protocol)
             
+            # Ensure flow cache entry exists and is properly initialized
+            if flow_key not in self.flow_cache:
+                self.flow_cache[flow_key] = {
+                    'bytes_sent': 0,
+                    'bytes_received': 0,
+                    'packet_count': 0,
+                    'first_seen': datetime.fromtimestamp(traffic_data.get('timestamp', datetime.utcnow().timestamp())),
+                    'last_update': datetime.utcnow(),
+                    'is_abnormal': is_abnormal
+                }
+            
             # Update flow statistics based on direction
+            # Log for debugging if bytes_sent is 0 after adding
             if is_outbound_packet:
                 # Outbound packet: client -> server
                 self.flow_cache[flow_key]['bytes_sent'] += packet_size
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Outbound packet: {source_ip}:{source_port} -> {dest_ip}:{dest_port}, "
+                               f"flow_key={flow_key}, bytes_sent={self.flow_cache[flow_key]['bytes_sent']}")
             else:
                 # Inbound packet: server -> client (response)
                 self.flow_cache[flow_key]['bytes_received'] += packet_size
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Inbound packet: {source_ip}:{source_port} -> {dest_ip}:{dest_port}, "
+                               f"flow_key={flow_key}, bytes_received={self.flow_cache[flow_key]['bytes_received']}")
             
             self.flow_cache[flow_key]['packet_count'] += 1
             # Track first_seen (only set on first packet)
@@ -198,14 +221,24 @@ class TrafficMonitor:
                 # Get domain by looking up DNS records that occurred before flow started
                 first_seen = flow_data.get('first_seen', datetime.utcnow())
                 
+                # Ensure we have valid values (defensive programming)
+                bytes_sent = max(0, flow_data.get('bytes_sent', 0))
+                bytes_received = max(0, flow_data.get('bytes_received', 0))
+                packet_count = max(0, flow_data.get('packet_count', 0))
+                
+                # Log if bytes_sent is 0 but we have packets (might indicate an issue)
+                if bytes_sent == 0 and packet_count > 0 and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Warning: Flow {flow_key} has {packet_count} packets but bytes_sent=0. "
+                               f"bytes_received={bytes_received}")
+                
                 self.db.upsert_traffic_flow(
                     source_ip=client_ip,  # RFC1918 client IP (or source IP for abnormal flows)
                     destination_ip=server_ip,  # Public server IP (or dest IP for abnormal flows)
                     destination_port=server_port,
                     protocol=protocol,
-                    bytes_sent=flow_data['bytes_sent'],
-                    bytes_received=flow_data['bytes_received'],
-                    packet_count=flow_data['packet_count'],
+                    bytes_sent=bytes_sent,
+                    bytes_received=bytes_received,
+                    packet_count=packet_count,
                     first_seen=first_seen,  # Pass first_seen for domain lookup
                     is_abnormal=is_abnormal  # Mark as abnormal if both IPs are external
                 )
