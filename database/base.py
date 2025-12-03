@@ -368,6 +368,64 @@ class DatabaseBase(ABC):
         """
         pass
     
+    def add_custom_threat_indicator(
+        self,
+        feed_name: str,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> int:
+        """Add a single indicator to a custom feed.
+        
+        Args:
+            feed_name: Name of the custom feed
+            indicator_type: 'domain' or 'ip'
+            domain: Domain name (required if indicator_type is 'domain')
+            ip: IP address (required if indicator_type is 'ip')
+            
+        Returns:
+            ID of the created indicator
+        """
+        raise NotImplementedError
+    
+    def remove_custom_threat_indicator(
+        self,
+        feed_name: str,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> bool:
+        """Remove a single indicator from a custom feed.
+        
+        Args:
+            feed_name: Name of the custom feed
+            indicator_type: 'domain' or 'ip'
+            domain: Domain name (required if indicator_type is 'domain')
+            ip: IP address (required if indicator_type is 'ip')
+            
+        Returns:
+            True if indicator was removed, False if not found
+        """
+        raise NotImplementedError
+    
+    def get_custom_feed_indicators(
+        self,
+        feed_name: str,
+        limit: int = 1000,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Get indicators from a custom feed.
+        
+        Args:
+            feed_name: Name of the custom feed
+            limit: Maximum number of indicators to return
+            offset: Number of indicators to skip
+            
+        Returns:
+            List of indicator dictionaries
+        """
+        raise NotImplementedError
+    
     @abstractmethod
     def create_threat_alert(
         self,

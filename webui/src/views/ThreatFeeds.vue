@@ -44,6 +44,84 @@
       </div>
     </div>
     
+    <!-- Custom Feed Management Section -->
+    <div class="custom-feed-section">
+      <h2>Custom Threat Feed</h2>
+      <div class="custom-feed-card">
+        <div class="add-indicator-form">
+          <h3>Add Indicator</h3>
+          <div class="form-row">
+            <label>
+              Type:
+              <select v-model="newIndicatorType" class="form-select">
+                <option value="domain">Domain</option>
+                <option value="ip">IP Address</option>
+              </select>
+            </label>
+            <label v-if="newIndicatorType === 'domain'">
+              Domain:
+              <input 
+                type="text" 
+                v-model="newDomain" 
+                placeholder="example.com"
+                class="form-input"
+                @keyup.enter="addCustomIndicator"
+              />
+            </label>
+            <label v-if="newIndicatorType === 'ip'">
+              IP Address:
+              <input 
+                type="text" 
+                v-model="newIp" 
+                placeholder="192.168.1.1"
+                class="form-input"
+                @keyup.enter="addCustomIndicator"
+              />
+            </label>
+            <button 
+              @click="addCustomIndicator" 
+              :disabled="addingIndicator || !canAddIndicator"
+              class="btn btn-primary"
+            >
+              {{ addingIndicator ? 'Adding...' : 'Add' }}
+            </button>
+          </div>
+        </div>
+        
+        <div class="custom-indicators-list" v-if="customFeedIndicators.length > 0">
+          <h3>Current Indicators ({{ customFeedIndicators.length }})</h3>
+          <div class="indicators-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Domain/IP</th>
+                  <th>Added</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="indicator in customFeedIndicators" :key="indicator.id">
+                  <td>{{ indicator.indicator_type }}</td>
+                  <td>{{ indicator.domain || indicator.ip }}</td>
+                  <td>{{ formatDate(indicator.first_seen) }}</td>
+                  <td>
+                    <button 
+                      @click="removeCustomIndicator(indicator)" 
+                      :disabled="removingIndicator === indicator.id"
+                      class="btn btn-danger btn-sm"
+                    >
+                      {{ removingIndicator === indicator.id ? 'Removing...' : 'Remove' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <div class="feeds-container">
       <div v-if="loading" class="loading">Loading feeds...</div>
       
@@ -150,12 +228,21 @@ export default {
       lookbackDays: 30,
       savingConfig: false,
       scanning: false,
-      lastScanResult: null
+      lastScanResult: null,
+      // Custom feed management
+      customFeedName: 'Custom',
+      newIndicatorType: 'domain',
+      newDomain: '',
+      newIp: '',
+      addingIndicator: false,
+      removingIndicator: null,
+      customFeedIndicators: []
     }
   },
   mounted() {
     this.loadFeeds()
     this.loadConfig()
+    this.loadCustomFeedIndicators()
     window.addEventListener('timezone-changed', this.handleTimezoneChange)
   },
   beforeUnmount() {
@@ -329,6 +416,83 @@ export default {
         }
       } finally {
         this.scanning = false
+      }
+    },
+    async addCustomIndicator() {
+      if (!this.canAddIndicator) return
+      
+      this.addingIndicator = true
+      try {
+        await api.addCustomIndicator(
+          this.customFeedName,
+          this.newIndicatorType,
+          this.newIndicatorType === 'domain' ? this.newDomain : null,
+          this.newIndicatorType === 'ip' ? this.newIp : null
+        )
+        
+        // Clear form
+        this.newDomain = ''
+        this.newIp = ''
+        
+        // Reload indicators and feeds
+        await this.loadCustomFeedIndicators()
+        await this.loadFeeds()
+        
+        alert('Indicator added successfully!')
+      } catch (error) {
+        console.error('Error adding custom indicator:', error)
+        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        alert(`Error adding indicator: ${errorMsg}`)
+      } finally {
+        this.addingIndicator = false
+      }
+    },
+    async removeCustomIndicator(indicator) {
+      if (!confirm(`Remove ${indicator.indicator_type} '${indicator.domain || indicator.ip}' from custom feed?`)) {
+        return
+      }
+      
+      this.removingIndicator = indicator.id
+      try {
+        await api.removeCustomIndicator(
+          this.customFeedName,
+          indicator.indicator_type,
+          indicator.domain,
+          indicator.ip
+        )
+        
+        // Reload indicators and feeds
+        await this.loadCustomFeedIndicators()
+        await this.loadFeeds()
+        
+        alert('Indicator removed successfully!')
+      } catch (error) {
+        console.error('Error removing custom indicator:', error)
+        const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        alert(`Error removing indicator: ${errorMsg}`)
+      } finally {
+        this.removingIndicator = null
+      }
+    },
+    async loadCustomFeedIndicators() {
+      try {
+        const response = await api.getCustomFeedIndicators(this.customFeedName, 1000, 0)
+        this.customFeedIndicators = response.indicators || []
+      } catch (error) {
+        // Feed might not exist yet, that's okay
+        if (error.response?.status !== 404) {
+          console.error('Error loading custom feed indicators:', error)
+        }
+        this.customFeedIndicators = []
+      }
+    }
+  },
+  computed: {
+    canAddIndicator() {
+      if (this.newIndicatorType === 'domain') {
+        return this.newDomain.trim().length > 0
+      } else {
+        return this.newIp.trim().length > 0
       }
     }
   }
@@ -646,5 +810,111 @@ export default {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.custom-feed-section {
+  margin-bottom: 2rem;
+}
+
+.custom-feed-section h2 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.custom-feed-card {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.add-indicator-form {
+  margin-bottom: 2rem;
+}
+
+.add-indicator-form h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-input,
+.form-select {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  min-width: 200px;
+}
+
+.form-input:focus,
+.form-select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.custom-indicators-list {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.custom-indicators-list h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: #333;
+}
+
+.indicators-table {
+  overflow-x: auto;
+}
+
+.indicators-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.indicators-table th,
+.indicators-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+
+.indicators-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: #333;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: #c82333;
 }
 </style>

@@ -613,3 +613,114 @@ async def update_threat_config(
     db.set_setting('threat_lookback_days', request.lookback_days)
     return ThreatConfigResponse(lookback_days=request.lookback_days)
 
+
+@router.post("/feeds/custom/add")
+async def add_custom_indicator(
+    feed_name: str = Body(...),
+    indicator_type: str = Body(...),
+    domain: Optional[str] = Body(None),
+    ip: Optional[str] = Body(None),
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Add a domain or IP to a custom threat feed."""
+    if indicator_type not in ['domain', 'ip']:
+        raise HTTPException(status_code=400, detail="indicator_type must be 'domain' or 'ip'")
+    
+    if indicator_type == 'domain' and not domain:
+        raise HTTPException(status_code=400, detail="domain is required when indicator_type is 'domain'")
+    
+    if indicator_type == 'ip' and not ip:
+        raise HTTPException(status_code=400, detail="ip is required when indicator_type is 'ip'")
+    
+    # Ensure custom feed exists
+    feeds = db.get_threat_feeds()
+    feed_exists = any(f['feed_name'] == feed_name for f in feeds)
+    
+    if not feed_exists:
+        # Create the custom feed if it doesn't exist
+        db.update_threat_feed_metadata(
+            feed_name=feed_name,
+            last_update=datetime.utcnow(),
+            indicator_count=0,
+            source_url='custom',
+            enabled=True,
+            error=None,
+            homepage=None,
+            config=None
+        )
+    
+    try:
+        indicator_id = db.add_custom_threat_indicator(
+            feed_name=feed_name,
+            indicator_type=indicator_type,
+            domain=domain,
+            ip=ip
+        )
+        return {
+            "success": True,
+            "indicator_id": indicator_id,
+            "message": f"Added {indicator_type} '{domain or ip}' to custom feed '{feed_name}'"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding custom indicator: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error adding indicator: {str(e)}")
+
+
+@router.delete("/feeds/custom/remove")
+async def remove_custom_indicator(
+    feed_name: str,
+    indicator_type: str,
+    domain: Optional[str] = None,
+    ip: Optional[str] = None,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """Remove a domain or IP from a custom threat feed."""
+    if indicator_type not in ['domain', 'ip']:
+        raise HTTPException(status_code=400, detail="indicator_type must be 'domain' or 'ip'")
+    
+    if indicator_type == 'domain' and not domain:
+        raise HTTPException(status_code=400, detail="domain is required when indicator_type is 'domain'")
+    
+    if indicator_type == 'ip' and not ip:
+        raise HTTPException(status_code=400, detail="ip is required when indicator_type is 'ip'")
+    
+    try:
+        removed = db.remove_custom_threat_indicator(
+            feed_name=feed_name,
+            indicator_type=indicator_type,
+            domain=domain,
+            ip=ip
+        )
+        if not removed:
+            raise HTTPException(status_code=404, detail="Indicator not found")
+        return {
+            "success": True,
+            "message": f"Removed {indicator_type} '{domain or ip}' from custom feed '{feed_name}'"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error removing custom indicator: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error removing indicator: {str(e)}")
+
+
+@router.get("/feeds/custom/{feed_name}/indicators")
+async def get_custom_feed_indicators(
+    feed_name: str,
+    limit: int = 1000,
+    offset: int = 0,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Get indicators from a custom feed."""
+    if limit < 1 or limit > 10000:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 10000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be >= 0")
+    
+    indicators = db.get_custom_feed_indicators(feed_name, limit=limit, offset=offset)
+    return {"indicators": indicators, "count": len(indicators)}

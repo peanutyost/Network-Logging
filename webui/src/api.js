@@ -288,6 +288,32 @@ export default {
       timeout: 300000  // 5 minutes in milliseconds
     })
     return response.data
+  },
+
+  // Custom feed management
+  async addCustomIndicator(feedName, indicatorType, domain, ip) {
+    const response = await api.post('/threat/feeds/custom/add', {
+      feed_name: feedName,
+      indicator_type: indicatorType,
+      domain: domain,
+      ip: ip
+    })
+    return response.data
+  },
+
+  async removeCustomIndicator(feedName, indicatorType, domain, ip) {
+    const params = new URLSearchParams()
+    params.append('feed_name', feedName)
+    params.append('indicator_type', indicatorType)
+    if (domain) params.append('domain', domain)
+    if (ip) params.append('ip', ip)
+    const response = await api.delete(`/threat/feeds/custom/remove?${params.toString()}`)
+    return response.data
+  },
+
+  async getCustomFeedIndicators(feedName, limit = 1000, offset = 0) {
+    const response = await api.get(`/threat/feeds/custom/${feedName}/indicators?limit=${limit}&offset=${offset}`)
+    return response.data
   }
 }
 

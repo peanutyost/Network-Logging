@@ -1560,6 +1560,132 @@ class PostgreSQLDatabase(DatabaseBase):
             conn.rollback()
             logger.error(f"Error updating threat indicators: {e}")
             raise
+    
+    def add_custom_threat_indicator(
+        self,
+        feed_name: str,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> int:
+        """Add a single indicator to a custom feed."""
+        if indicator_type not in ['domain', 'ip']:
+            raise ValueError("indicator_type must be 'domain' or 'ip'")
+        if indicator_type == 'domain' and not domain:
+            raise ValueError("domain is required when indicator_type is 'domain'")
+        if indicator_type == 'ip' and not ip:
+            raise ValueError("ip is required when indicator_type is 'ip'")
+        
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO threat_indicators (feed_name, indicator_type, domain, ip)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip, ''))
+                    DO NOTHING
+                    RETURNING id
+                """, (feed_name, indicator_type, domain.lower() if domain else None, ip))
+                
+                result = cur.fetchone()
+                indicator_id = result[0] if result else None
+                
+                # Update feed metadata
+                if indicator_id:
+                    cur.execute("""
+                        SELECT COUNT(*) FROM threat_indicators WHERE feed_name = %s
+                    """, (feed_name,))
+                    count = cur.fetchone()[0]
+                    
+                    cur.execute("""
+                        UPDATE threat_feeds 
+                        SET indicator_count = %s, last_update = CURRENT_TIMESTAMP
+                        WHERE feed_name = %s
+                    """, (count, feed_name))
+                
+                conn.commit()
+                return indicator_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error adding custom threat indicator: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def remove_custom_threat_indicator(
+        self,
+        feed_name: str,
+        indicator_type: str,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> bool:
+        """Remove a single indicator from a custom feed."""
+        if indicator_type not in ['domain', 'ip']:
+            raise ValueError("indicator_type must be 'domain' or 'ip'")
+        if indicator_type == 'domain' and not domain:
+            raise ValueError("domain is required when indicator_type is 'domain'")
+        if indicator_type == 'ip' and not ip:
+            raise ValueError("ip is required when indicator_type is 'ip'")
+        
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    DELETE FROM threat_indicators 
+                    WHERE feed_name = %s AND indicator_type = %s 
+                    AND (domain = %s OR ip = %s)
+                """, (feed_name, indicator_type, domain.lower() if domain else None, ip))
+                
+                deleted = cur.rowcount > 0
+                
+                if deleted:
+                    # Update feed metadata
+                    cur.execute("""
+                        SELECT COUNT(*) FROM threat_indicators WHERE feed_name = %s
+                    """, (feed_name,))
+                    count = cur.fetchone()[0]
+                    
+                    cur.execute("""
+                        UPDATE threat_feeds 
+                        SET indicator_count = %s, last_update = CURRENT_TIMESTAMP
+                        WHERE feed_name = %s
+                    """, (count, feed_name))
+                
+                conn.commit()
+                return deleted
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error removing custom threat indicator: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
+    def get_custom_feed_indicators(
+        self,
+        feed_name: str,
+        limit: int = 1000,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Get indicators from a custom feed."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, indicator_type, domain, ip, first_seen, last_seen
+                    FROM threat_indicators
+                    WHERE feed_name = %s
+                    ORDER BY last_seen DESC
+                    LIMIT %s OFFSET %s
+                """, (feed_name, limit, offset))
+                
+                columns = [desc[0] for desc in cur.description]
+                rows = cur.fetchall()
+                return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error getting custom feed indicators: {e}")
+            return []
+        finally:
+            self._return_connection(conn)
         finally:
             self._return_connection(conn)
     
