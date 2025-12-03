@@ -104,6 +104,18 @@ async def get_threat_alerts(
     return alerts
 
 
+@router.get("/alerts/count")
+async def get_threat_alerts_count(
+    since: Optional[datetime] = None,
+    resolved: Optional[bool] = None,
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Get total count of threat alerts."""
+    count = db.get_threat_alerts_count(since=since, resolved=resolved)
+    return {"count": count}
+
+
 @router.post("/alerts/{alert_id}/resolve")
 async def resolve_threat_alert(
     alert_id: int,

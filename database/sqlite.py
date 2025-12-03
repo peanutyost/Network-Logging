@@ -1379,6 +1379,34 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error getting threat alerts: {e}")
             return []
     
+    def get_threat_alerts_count(
+        self,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> int:
+        """Get total count of threat alerts."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT COUNT(*) FROM threat_alerts WHERE 1=1"
+            params = []
+            
+            if since:
+                query += " AND created_at >= ?"
+                params.append(since)
+            
+            if resolved is not None:
+                query += " AND resolved = ?"
+                params.append(1 if resolved else 0)
+            
+            cursor.execute(query, tuple(params))
+            result = cursor.fetchone()
+            return int(result[0]) if result else 0
+        except Exception as e:
+            logger.error(f"Error getting threat alerts count: {e}")
+            return 0
+    
     def get_threat_feeds(self) -> List[Dict[str, Any]]:
         """Get list of threat feeds."""
         if not self.conn:

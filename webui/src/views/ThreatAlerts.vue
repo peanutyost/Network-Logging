@@ -105,6 +105,8 @@ export default {
   data() {
     return {
       alerts: [],
+      totalAlertsCount: 0,
+      unresolvedAlertsCount: 0,
       loading: false,
       resolving: null,
       whitelisting: null,
@@ -114,10 +116,10 @@ export default {
   },
   computed: {
     totalAlerts() {
-      return this.alerts.length
+      return this.totalAlertsCount
     },
     unresolvedCount() {
-      return this.alerts.filter(a => !a.resolved).length
+      return this.unresolvedAlertsCount
     },
     isAdmin() {
       return this.$root.isAdmin || false
@@ -144,7 +146,11 @@ export default {
       this.loading = true
       try {
         const resolved = this.showResolved ? null : false
-        this.alerts = await api.getThreatAlerts(200, null, resolved)
+        // Fetch alerts with higher limit (1000 is the max)
+        this.alerts = await api.getThreatAlerts(1000, null, resolved)
+        // Fetch actual counts
+        this.totalAlertsCount = await api.getThreatAlertsCount(null, resolved)
+        this.unresolvedAlertsCount = await api.getThreatAlertsCount(null, false)
       } catch (error) {
         console.error('Error loading threat alerts:', error)
         alert('Error loading threat alerts. Please try again.')

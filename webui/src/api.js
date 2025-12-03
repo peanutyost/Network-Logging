@@ -219,6 +219,14 @@ export default {
     return response.data
   },
 
+  async getThreatAlertsCount(since = null, resolved = null) {
+    const params = {}
+    if (since) params.since = since
+    if (resolved !== null) params.resolved = resolved
+    const response = await api.get('/threat/alerts/count', { params })
+    return response.data.count
+  },
+
   async resolveThreatAlert(alertId) {
     const response = await api.post(`/threat/alerts/${alertId}/resolve`)
     return response.data

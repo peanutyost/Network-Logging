@@ -1663,6 +1663,35 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
+    def get_threat_alerts_count(
+        self,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> int:
+        """Get total count of threat alerts."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                query = "SELECT COUNT(*) FROM threat_alerts WHERE 1=1"
+                params = []
+                
+                if since:
+                    query += " AND created_at >= %s"
+                    params.append(since)
+                
+                if resolved is not None:
+                    query += " AND resolved = %s"
+                    params.append(resolved)
+                
+                cur.execute(query, tuple(params))
+                result = cur.fetchone()
+                return int(result[0]) if result else 0
+        except Exception as e:
+            logger.error(f"Error getting threat alerts count: {e}")
+            return 0
+        finally:
+            self._return_connection(conn)
+    
     def get_threat_feeds(self) -> List[Dict[str, Any]]:
         """Get list of threat feeds."""
         conn = self._get_connection()

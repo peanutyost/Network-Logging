@@ -413,6 +413,23 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
+    def get_threat_alerts_count(
+        self,
+        since: Optional[datetime] = None,
+        resolved: Optional[bool] = None
+    ) -> int:
+        """Get total count of threat alerts.
+        
+        Args:
+            since: Only count alerts since this timestamp
+            resolved: Filter by resolved status (True/False/None for all)
+            
+        Returns:
+            Total count of threat alerts
+        """
+        pass
+    
+    @abstractmethod
     def get_threat_feeds(self) -> List[Dict[str, Any]]:
         """Get list of threat feeds.
         
