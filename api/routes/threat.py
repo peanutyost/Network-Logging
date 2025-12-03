@@ -1,5 +1,5 @@
 """Threat hunting and analytics API routes."""
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Response, Body
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 import logging
@@ -131,7 +131,7 @@ async def resolve_threat_alert(
 
 @router.post("/alerts/resolve-batch")
 async def resolve_threat_alerts_batch(
-    alert_ids: List[int],
+    alert_ids: List[int] = Body(...),
     db: DatabaseBase = Depends(get_db),
     current_user: dict = Depends(get_current_active_user)
 ):

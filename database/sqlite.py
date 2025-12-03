@@ -1545,6 +1545,7 @@ class SQLiteDatabase(DatabaseBase):
             self.conn.commit()
             return cursor.rowcount
         except Exception as e:
+            self.conn.rollback()
             logger.error(f"Error resolving threat alerts by IDs: {e}")
             raise
     
