@@ -200,8 +200,13 @@ class PacketCapture:
                 return
             
             # Apply port filtering if configured
-            if self.capture_config.ports and dest_port not in self.capture_config.ports:
-                return
+            # Check both source and destination ports to capture bidirectional traffic
+            # For outbound: dest_port is the server port (e.g., 443)
+            # For inbound: source_port is the server port (e.g., 443), dest_port is ephemeral
+            if self.capture_config.ports:
+                # Include packet if either source or destination port matches
+                if source_port not in self.capture_config.ports and dest_port not in self.capture_config.ports:
+                    return
             
             if self.traffic_callback:
                 # Determine direction and bytes
