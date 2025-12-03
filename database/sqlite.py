@@ -657,6 +657,7 @@ class SQLiteDatabase(DatabaseBase):
             cursor.execute("""
                 SELECT 
                     destination_ip,
+                    source_ip,
                     COALESCE(SUM(bytes_sent), 0) as total_bytes_sent,
                     COALESCE(SUM(bytes_received), 0) as total_bytes_received,
                     COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
@@ -668,12 +669,14 @@ class SQLiteDatabase(DatabaseBase):
                 WHERE is_orphaned = 1
                 AND last_update >= ?
                 AND last_update <= ?
-                GROUP BY destination_ip
+                GROUP BY destination_ip, source_ip
                 ORDER BY total_bytes DESC
             """, (start_time, end_time))
             
             rows = cursor.fetchall()
-            return [dict(r) for r in rows]
+            # Convert rows to dicts
+            columns = [description[0] for description in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
         except Exception as e:
             logger.error(f"Error getting orphaned IPs: {e}")
             return []

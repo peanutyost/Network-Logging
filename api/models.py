@@ -60,6 +60,7 @@ class TrafficFlowResponse(BaseModel):
 class OrphanedIPResponse(BaseModel):
     """Orphaned IP response model."""
     destination_ip: str
+    source_ip: str
     total_bytes_sent: int
     total_bytes_received: int
     total_bytes: int

@@ -47,6 +47,7 @@
         <thead>
           <tr>
             <th>Destination IP</th>
+            <th>Source IP</th>
             <th>Total Bytes</th>
             <th>Bytes Sent</th>
             <th>Bytes Received</th>
@@ -57,8 +58,9 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="ip in filteredOrphanedIPs" :key="ip.destination_ip">
+          <tr v-for="ip in filteredOrphanedIPs" :key="`${ip.destination_ip}-${ip.source_ip}`">
             <td>{{ ip.destination_ip }}</td>
+            <td>{{ ip.source_ip }}</td>
             <td>{{ formatBytes(ip.total_bytes) }}</td>
             <td>{{ formatBytes(ip.total_bytes_sent) }}</td>
             <td>{{ formatBytes(ip.total_bytes_received) }}</td>
@@ -123,9 +125,10 @@ export default {
     exportCSV() {
       if (this.filteredOrphanedIPs.length === 0) return
       
-      const headers = ['Destination IP', 'Total Bytes', 'Bytes Sent', 'Bytes Received', 'Packets', 'Connections', 'First Seen', 'Last Seen']
+      const headers = ['Destination IP', 'Source IP', 'Total Bytes', 'Bytes Sent', 'Bytes Received', 'Packets', 'Connections', 'First Seen', 'Last Seen']
       const rows = this.filteredOrphanedIPs.map(ip => [
         ip.destination_ip,
+        ip.source_ip,
         ip.total_bytes,
         ip.total_bytes_sent,
         ip.total_bytes_received,

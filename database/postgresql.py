@@ -946,6 +946,7 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("""
                     SELECT 
                         destination_ip,
+                        source_ip,
                         COALESCE(SUM(bytes_sent), 0) as total_bytes_sent,
                         COALESCE(SUM(bytes_received), 0) as total_bytes_received,
                         COALESCE(SUM(COALESCE(bytes_sent, 0) + COALESCE(bytes_received, 0)), 0) as total_bytes,
@@ -957,7 +958,7 @@ class PostgreSQLDatabase(DatabaseBase):
                     WHERE is_orphaned = TRUE
                     AND last_update >= %s
                     AND last_update <= %s
-                    GROUP BY destination_ip
+                    GROUP BY destination_ip, source_ip
                     ORDER BY total_bytes DESC
                 """, (start_time, end_time))
                 
