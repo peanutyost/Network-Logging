@@ -60,6 +60,9 @@ class TrafficMonitor:
             
             # Normalize flow key to always use (client_ip, server_ip, server_port, protocol)
             # Client must be RFC1918, server must be public (unless abnormal flow)
+            # For bidirectional matching: server_port is always the well-known port (typically < 1024 or common service port)
+            # For outbound: server_port = dest_port (the port we're connecting to)
+            # For inbound: server_port = source_port (the port the server is responding from, which should match the original dest_port)
             is_abnormal = False
             if source_is_local and not dest_is_local:
                 # Outbound: local client -> external server
@@ -70,9 +73,11 @@ class TrafficMonitor:
             elif dest_is_local and not source_is_local:
                 # Inbound response: external server -> local client
                 # Normalize to same flow key: client is RFC1918, server is public
+                # The server's source_port in the response is the port it's listening on (e.g., 443)
+                # This should match the dest_port from the original outbound request
                 client_ip = dest_ip
                 server_ip = source_ip
-                server_port = source_port  # Server's port in response
+                server_port = source_port  # Server's listening port (matches original dest_port)
                 is_outbound_packet = False
             elif source_is_local and dest_is_local:
                 # Both local - use source as client (RFC1918)
@@ -83,16 +88,16 @@ class TrafficMonitor:
             else:
                 # Both external - mark as abnormal flow
                 # For abnormal flows, we can't normalize to client/server, so use source/dest as-is
-                logger.debug(f"Abnormal flow detected: both external IPs {source_ip} <-> {dest_ip}")
                 client_ip = source_ip
                 server_ip = dest_ip
                 server_port = dest_port
                 is_outbound_packet = True
                 is_abnormal = True
             
-            # Create normalized flow key: (client_ip, server_ip, server_port, protocol, is_abnormal)
-            # For abnormal flows, include is_abnormal in key to separate them from normal flows
-            flow_key = (client_ip, server_ip, server_port, protocol, is_abnormal)
+            # Create normalized flow key: (client_ip, server_ip, server_port, protocol)
+            # For normal flows (client is local, server is external), both directions use the same key
+            # Only use is_abnormal flag for storage, not for flow key matching
+            flow_key = (client_ip, server_ip, server_port, protocol)
             
             # Update flow statistics based on direction
             if is_outbound_packet:
@@ -158,13 +163,9 @@ class TrafficMonitor:
             logger.debug(f"Flushing {len(self.flow_cache)} flow entries to database")
             
             for flow_key, flow_data in self.flow_cache.items():
-                # Handle both normal and abnormal flow keys
-                if len(flow_key) == 5:
-                    client_ip, server_ip, server_port, protocol, is_abnormal = flow_key
-                else:
-                    # Fallback for old format (shouldn't happen, but be safe)
-                    client_ip, server_ip, server_port, protocol = flow_key[:4]
-                    is_abnormal = flow_data.get('is_abnormal', False)
+                # Flow key is always (client_ip, server_ip, server_port, protocol)
+                client_ip, server_ip, server_port, protocol = flow_key
+                is_abnormal = flow_data.get('is_abnormal', False)
                 
                 # Get domain by looking up DNS records that occurred before flow started
                 first_seen = flow_data.get('first_seen', datetime.utcnow())
