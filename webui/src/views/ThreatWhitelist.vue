@@ -204,6 +204,7 @@ export default {
         this.showAddModal = false
         this.clearNewEntry()
         this.loadWhitelist()
+        alert('Successfully added to whitelist! All related alerts have been resolved.')
       } catch (error) {
         console.error('Error adding whitelist entry:', error)
         alert(error.response?.data?.detail || 'Error adding whitelist entry. Please try again.')

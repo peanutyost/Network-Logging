@@ -1776,6 +1776,45 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
+    def resolve_threat_alerts_by_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> int:
+        """Resolve all threat alerts matching a domain or IP."""
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                query = """
+                    UPDATE threat_alerts
+                    SET resolved = TRUE, resolved_at = CURRENT_TIMESTAMP
+                    WHERE resolved = FALSE AND (
+                """
+                params = []
+                
+                if domain:
+                    query += " domain = %s"
+                    params.append(domain.lower())
+                
+                if ip:
+                    if domain:
+                        query += " OR ip = %s"
+                    else:
+                        query += " ip = %s"
+                    params.append(ip)
+                
+                query += " )"
+                
+                cur.execute(query, tuple(params))
+                conn.commit()
+                return cur.rowcount
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error resolving threat alerts by indicator: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed."""
         conn = self._get_connection()

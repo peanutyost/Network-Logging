@@ -477,6 +477,23 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
+    def resolve_threat_alerts_by_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> int:
+        """Resolve all threat alerts matching a domain or IP.
+        
+        Args:
+            domain: Domain to match (if provided)
+            ip: IP address to match (if provided)
+            
+        Returns:
+            Number of alerts resolved
+        """
+        pass
+    
+    @abstractmethod
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed.
         

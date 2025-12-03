@@ -181,7 +181,7 @@ export default {
     },
     async addToWhitelist(alert) {
       const indicator = alert.domain || alert.ip
-      if (!confirm(`Add ${indicator} to whitelist?`)) {
+      if (!confirm(`Add ${indicator} to whitelist? This will resolve all alerts for this indicator.`)) {
         return
       }
       
@@ -194,7 +194,9 @@ export default {
           reason: `Added from threat alert #${alert.id}`
         }
         await api.addThreatWhitelist(entry)
-        alert(`Successfully added ${indicator} to whitelist!`)
+        // Reload alerts to reflect the resolved status
+        await this.loadAlerts()
+        alert(`Successfully added ${indicator} to whitelist! All related alerts have been resolved.`)
       } catch (error) {
         console.error('Error adding to whitelist:', error)
         const errorMsg = error.response?.data?.detail || 'Error adding to whitelist. Please try again.'

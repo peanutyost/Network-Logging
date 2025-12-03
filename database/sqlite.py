@@ -1488,6 +1488,43 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error resolving threat alert: {e}")
             raise
     
+    def resolve_threat_alerts_by_indicator(
+        self,
+        domain: Optional[str] = None,
+        ip: Optional[str] = None
+    ) -> int:
+        """Resolve all threat alerts matching a domain or IP."""
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                UPDATE threat_alerts
+                SET resolved = 1, resolved_at = CURRENT_TIMESTAMP
+                WHERE resolved = 0 AND (
+            """
+            params = []
+            
+            if domain:
+                query += " domain = ?"
+                params.append(domain.lower())
+            
+            if ip:
+                if domain:
+                    query += " OR ip = ?"
+                else:
+                    query += " ip = ?"
+                params.append(ip)
+            
+            query += " )"
+            
+            cursor.execute(query, tuple(params))
+            self.conn.commit()
+            return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Error resolving threat alerts by indicator: {e}")
+            raise
+    
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed."""
         if not self.conn:

@@ -302,12 +302,24 @@ async def add_threat_whitelist(
             ip=request.ip,
             reason=request.reason
         )
+        
+        # Resolve all alerts matching this indicator
+        resolved_count = db.resolve_threat_alerts_by_indicator(
+            domain=request.domain,
+            ip=request.ip
+        )
+        
         # Get the created entry by querying all entries and finding the one with matching ID
         # We query a reasonable limit to ensure we get the newly created entry
         entries = db.get_threat_whitelist(limit=100)
         entry = next((e for e in entries if e['id'] == whitelist_id), None)
         if entry:
-            return ThreatWhitelistEntry(**entry)
+            result = ThreatWhitelistEntry(**entry)
+            # Add resolved count to response metadata (if we need to return it)
+            # For now, we'll just log it
+            if resolved_count > 0:
+                logger.info(f"Resolved {resolved_count} threat alerts when adding {request.domain or request.ip} to whitelist")
+            return result
         raise HTTPException(status_code=500, detail="Failed to retrieve created whitelist entry")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
