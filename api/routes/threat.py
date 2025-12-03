@@ -129,6 +129,27 @@ async def resolve_threat_alert(
     return {"success": True, "message": "Alert resolved"}
 
 
+@router.post("/alerts/resolve-batch")
+async def resolve_threat_alerts_batch(
+    alert_ids: List[int],
+    db: DatabaseBase = Depends(get_db),
+    current_user: dict = Depends(get_current_active_user)
+):
+    """Resolve multiple threat alerts by their IDs."""
+    if not alert_ids:
+        raise HTTPException(status_code=400, detail="alert_ids list cannot be empty")
+    
+    if len(alert_ids) > 1000:
+        raise HTTPException(status_code=400, detail="Cannot resolve more than 1000 alerts at once")
+    
+    resolved_count = db.resolve_threat_alerts_by_ids(alert_ids)
+    return {
+        "success": True,
+        "message": f"Resolved {resolved_count} alert(s)",
+        "resolved_count": resolved_count
+    }
+
+
 @router.put("/feeds/{feed_name}/toggle")
 async def toggle_threat_feed(
     feed_name: str,

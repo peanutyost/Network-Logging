@@ -494,6 +494,18 @@ class DatabaseBase(ABC):
         pass
     
     @abstractmethod
+    def resolve_threat_alerts_by_ids(self, alert_ids: List[int]) -> int:
+        """Resolve multiple threat alerts by their IDs.
+        
+        Args:
+            alert_ids: List of alert IDs to resolve
+            
+        Returns:
+            Number of alerts resolved
+        """
+        pass
+    
+    @abstractmethod
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed.
         

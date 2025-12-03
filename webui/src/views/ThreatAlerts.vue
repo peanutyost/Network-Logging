@@ -30,65 +30,77 @@
       </div>
       
       <div v-else class="alerts-list">
-        <div 
-          v-for="alert in alerts" 
-          :key="alert.id" 
-          :class="['alert-card', alert.resolved ? 'resolved' : 'unresolved']"
-        >
-          <div class="alert-header">
-            <div class="alert-title">
-              <span class="indicator-type">{{ alert.indicator_type.toUpperCase() }}</span>
-              <span class="feed-name">{{ alert.feed_name }}</span>
+        <div v-for="group in groupedAlerts" :key="group.key" class="alert-group">
+          <div class="group-header">
+            <div class="group-info">
+              <h3 class="group-domain">{{ group.domain || 'N/A' }}</h3>
+              <span class="group-source">Source: {{ group.source_ip }}</span>
+              <span class="group-count">{{ group.alerts.length }} alert(s)</span>
             </div>
-            <div class="alert-status">
-              <span v-if="alert.resolved" class="status-badge resolved">Resolved</span>
-              <span v-else class="status-badge unresolved">Active</span>
-            </div>
+            <button 
+              v-if="group.hasUnresolved"
+              @click="resolveGroup(group)" 
+              class="btn btn-primary btn-group-resolve"
+              :disabled="resolvingGroup === group.key"
+            >
+              {{ resolvingGroup === group.key ? 'Resolving...' : `Resolve All (${group.unresolvedCount})` }}
+            </button>
           </div>
           
-          <div class="alert-details">
-            <div class="detail-row">
-              <span class="label">Domain:</span>
-              <span class="value">{{ alert.domain || 'N/A' }}</span>
-            </div>
-            <div class="detail-row" v-if="alert.ip">
-              <span class="label">IP Address:</span>
-              <span class="value">{{ alert.ip }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">Query Type:</span>
-              <span class="value">{{ alert.query_type }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">Source IP:</span>
-              <span class="value">{{ alert.source_ip }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">Detected:</span>
-              <span class="value">{{ formatDate(alert.created_at) }}</span>
-            </div>
-            <div class="detail-row" v-if="alert.resolved_at">
-              <span class="label">Resolved:</span>
-              <span class="value">{{ formatDate(alert.resolved_at) }}</span>
-            </div>
-          </div>
-          
-          <div class="alert-actions" v-if="!alert.resolved">
-            <button 
-              @click="resolveAlert(alert.id)" 
-              class="btn btn-primary"
-              :disabled="resolving === alert.id"
+          <div class="group-alerts">
+            <div 
+              v-for="alert in group.alerts" 
+              :key="alert.id" 
+              :class="['alert-card', alert.resolved ? 'resolved' : 'unresolved']"
             >
-              {{ resolving === alert.id ? 'Resolving...' : 'Mark as Resolved' }}
-            </button>
-            <button 
-              v-if="isAdmin"
-              @click="addToWhitelist(alert)" 
-              class="btn btn-success"
-              :disabled="whitelisting === alert.id"
-            >
-              {{ whitelisting === alert.id ? 'Adding...' : 'Add to Whitelist' }}
-            </button>
+              <div class="alert-header">
+                <div class="alert-title">
+                  <span class="indicator-type">{{ alert.indicator_type.toUpperCase() }}</span>
+                  <span class="feed-name">{{ alert.feed_name }}</span>
+                </div>
+                <div class="alert-status">
+                  <span v-if="alert.resolved" class="status-badge resolved">Resolved</span>
+                  <span v-else class="status-badge unresolved">Active</span>
+                </div>
+              </div>
+              
+              <div class="alert-details">
+                <div class="detail-row" v-if="alert.ip">
+                  <span class="label">IP Address:</span>
+                  <span class="value">{{ alert.ip }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="label">Query Type:</span>
+                  <span class="value">{{ alert.query_type }}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="label">Detected:</span>
+                  <span class="value">{{ formatDate(alert.created_at) }}</span>
+                </div>
+                <div class="detail-row" v-if="alert.resolved_at">
+                  <span class="label">Resolved:</span>
+                  <span class="value">{{ formatDate(alert.resolved_at) }}</span>
+                </div>
+              </div>
+              
+              <div class="alert-actions" v-if="!alert.resolved">
+                <button 
+                  @click="resolveAlert(alert.id)" 
+                  class="btn btn-primary"
+                  :disabled="resolving === alert.id"
+                >
+                  {{ resolving === alert.id ? 'Resolving...' : 'Mark as Resolved' }}
+                </button>
+                <button 
+                  v-if="isAdmin"
+                  @click="addToWhitelist(alert)" 
+                  class="btn btn-success"
+                  :disabled="whitelisting === alert.id"
+                >
+                  {{ whitelisting === alert.id ? 'Adding...' : 'Add to Whitelist' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -110,6 +122,7 @@ export default {
       loading: false,
       resolving: null,
       whitelisting: null,
+      resolvingGroup: null,
       showResolved: false,
       currentTimezone: getTimezone()
     }
@@ -123,6 +136,49 @@ export default {
     },
     isAdmin() {
       return this.$root.isAdmin || false
+    },
+    groupedAlerts() {
+      // Group alerts by domain (URL) then by source_ip
+      const groups = {}
+      
+      this.alerts.forEach(alert => {
+        const domain = alert.domain || 'N/A'
+        const sourceIp = alert.source_ip || 'N/A'
+        const key = `${domain}|${sourceIp}`
+        
+        if (!groups[key]) {
+          groups[key] = {
+            key: key,
+            domain: domain,
+            source_ip: sourceIp,
+            alerts: []
+          }
+        }
+        
+        groups[key].alerts.push(alert)
+      })
+      
+      // Convert to array and sort by domain, then source IP
+      const groupsArray = Object.values(groups).map(group => {
+        // Sort alerts within group by created_at (newest first)
+        group.alerts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        
+        // Calculate unresolved count
+        group.unresolvedCount = group.alerts.filter(a => !a.resolved).length
+        group.hasUnresolved = group.unresolvedCount > 0
+        
+        return group
+      })
+      
+      // Sort groups by domain name, then source IP
+      groupsArray.sort((a, b) => {
+        if (a.domain !== b.domain) {
+          return a.domain.localeCompare(b.domain)
+        }
+        return a.source_ip.localeCompare(b.source_ip)
+      })
+      
+      return groupsArray
     }
   },
   mounted() {
@@ -172,11 +228,52 @@ export default {
           // Remove from list if not showing resolved
           this.alerts = this.alerts.filter(a => a.id !== alertId)
         }
+        // Update counts
+        await this.loadAlerts()
       } catch (error) {
         console.error('Error resolving alert:', error)
         alert('Error resolving alert. Please try again.')
       } finally {
         this.resolving = null
+      }
+    },
+    async resolveGroup(group) {
+      if (!confirm(`Resolve all ${group.unresolvedCount} unresolved alert(s) for ${group.domain} from ${group.source_ip}?`)) {
+        return
+      }
+      
+      this.resolvingGroup = group.key
+      try {
+        const unresolvedIds = group.alerts.filter(a => !a.resolved).map(a => a.id)
+        if (unresolvedIds.length === 0) {
+          return
+        }
+        
+        const result = await api.resolveThreatAlertsBatch(unresolvedIds)
+        
+        // Update alerts in the list
+        unresolvedIds.forEach(id => {
+          const alert = this.alerts.find(a => a.id === id)
+          if (alert) {
+            alert.resolved = true
+            alert.resolved_at = new Date().toISOString()
+          }
+        })
+        
+        if (!this.showResolved) {
+          // Remove resolved alerts from list if not showing resolved
+          this.alerts = this.alerts.filter(a => !unresolvedIds.includes(a.id))
+        }
+        
+        // Update counts
+        await this.loadAlerts()
+        
+        alert(`Successfully resolved ${result.resolved_count} alert(s)!`)
+      } catch (error) {
+        console.error('Error resolving group:', error)
+        alert('Error resolving alerts. Please try again.')
+      } finally {
+        this.resolvingGroup = null
       }
     },
     async addToWhitelist(alert) {
@@ -290,6 +387,54 @@ export default {
 }
 
 .alerts-list {
+  display: grid;
+  gap: 2rem;
+}
+
+.alert-group {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1.5rem;
+  border: 1px solid #e0e0e0;
+}
+
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.group-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.group-info h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #333;
+}
+
+.group-source {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.group-count {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.btn-group-resolve {
+  white-space: nowrap;
+}
+
+.group-alerts {
   display: grid;
   gap: 1rem;
 }

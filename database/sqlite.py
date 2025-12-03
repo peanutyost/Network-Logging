@@ -1525,6 +1525,29 @@ class SQLiteDatabase(DatabaseBase):
             logger.error(f"Error resolving threat alerts by indicator: {e}")
             raise
     
+    def resolve_threat_alerts_by_ids(self, alert_ids: List[int]) -> int:
+        """Resolve multiple threat alerts by their IDs."""
+        if not alert_ids:
+            return 0
+        
+        if not self.conn:
+            self.connect()
+        try:
+            cursor = self.conn.cursor()
+            # Use parameterized query with IN clause
+            placeholders = ','.join(['?'] * len(alert_ids))
+            query = f"""
+                UPDATE threat_alerts
+                SET resolved = 1, resolved_at = CURRENT_TIMESTAMP
+                WHERE id IN ({placeholders}) AND resolved = 0
+            """
+            cursor.execute(query, tuple(alert_ids))
+            self.conn.commit()
+            return cursor.rowcount
+        except Exception as e:
+            logger.error(f"Error resolving threat alerts by IDs: {e}")
+            raise
+    
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed."""
         if not self.conn:

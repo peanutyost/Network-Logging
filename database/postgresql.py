@@ -1815,6 +1815,31 @@ class PostgreSQLDatabase(DatabaseBase):
         finally:
             self._return_connection(conn)
     
+    def resolve_threat_alerts_by_ids(self, alert_ids: List[int]) -> int:
+        """Resolve multiple threat alerts by their IDs."""
+        if not alert_ids:
+            return 0
+        
+        conn = self._get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Use parameterized query with IN clause
+                placeholders = ','.join(['%s'] * len(alert_ids))
+                query = f"""
+                    UPDATE threat_alerts
+                    SET resolved = TRUE, resolved_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders}) AND resolved = FALSE
+                """
+                cur.execute(query, tuple(alert_ids))
+                conn.commit()
+                return cur.rowcount
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error resolving threat alerts by IDs: {e}")
+            raise
+        finally:
+            self._return_connection(conn)
+    
     def update_threat_feed_enabled(self, feed_name: str, enabled: bool) -> bool:
         """Update the enabled status of a threat feed."""
         conn = self._get_connection()
