@@ -534,7 +534,15 @@ class SQLiteDatabase(DatabaseBase):
     ) -> int:
         """Insert or update a traffic flow entry.
         
-        source_ip is RFC1918 client IP (or source IP for abnormal flows), destination_ip is public server IP.
+        This method handles bidirectional flows by using a normalized flow key:
+        - source_ip: RFC1918 client IP (or source IP for abnormal flows)
+        - destination_ip: Public server IP (or destination IP for abnormal flows)
+        - destination_port: Well-known server port (normalized from both directions)
+        - protocol: TCP or UDP
+        
+        Both directions of a flow (client->server and server->client) are normalized
+        to the same flow key, allowing proper aggregation of bytes_sent and bytes_received.
+        
         Domain is looked up from DNS records that occurred before first_seen.
         """
         if not domain and not is_abnormal:

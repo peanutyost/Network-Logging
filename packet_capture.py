@@ -176,7 +176,15 @@ class PacketCapture:
             logger.debug(f"Error processing DNS packet: {e}")
     
     def _process_traffic_packet(self, packet, ip_layer):
-        """Extract traffic information from packet."""
+        """Extract traffic information from packet.
+        
+        This method captures both directions of a packet flow:
+        - Outbound: client -> server (source_ip is client, dest_ip is server)
+        - Inbound: server -> client (source_ip is server, dest_ip is client)
+        
+        The traffic_monitor.process_packet() method will normalize these into
+        a single bidirectional flow using a consistent flow key.
+        """
         try:
             source_ip = ip_layer.src
             dest_ip = ip_layer.dst
@@ -196,21 +204,23 @@ class PacketCapture:
                 source_port = udp_layer.sport
                 dest_port = udp_layer.dport
             
-            if not protocol or not dest_port:
+            # Ensure we have both ports for proper bidirectional flow tracking
+            if not protocol or dest_port is None or source_port is None:
                 return
             
             # Apply port filtering if configured
             # Check both source and destination ports to capture bidirectional traffic
-            # For outbound: dest_port is the server port (e.g., 443)
-            # For inbound: source_port is the server port (e.g., 443), dest_port is ephemeral
+            # This ensures we capture both:
+            # - Outbound packets: dest_port matches filter (e.g., 443)
+            # - Inbound packets: source_port matches filter (e.g., 443)
             if self.capture_config.ports:
                 # Include packet if either source or destination port matches
                 if source_port not in self.capture_config.ports and dest_port not in self.capture_config.ports:
                     return
             
             if self.traffic_callback:
-                # Determine direction and bytes
-                # For simplicity, we'll track both directions separately
+                # Pass raw packet data to traffic monitor
+                # The traffic monitor will normalize the flow key to handle bidirectional traffic
                 self.traffic_callback({
                     'source_ip': source_ip,
                     'destination_ip': dest_ip,

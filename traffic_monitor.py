@@ -58,39 +58,67 @@ class TrafficMonitor:
             source_is_local = self._is_local_ip(source_ip)
             dest_is_local = self._is_local_ip(dest_ip)
             
+            # Identify the well-known server port for flow normalization
+            # The server port is typically:
+            # 1. A well-known port (< 1024) or common service port (80, 443, etc.)
+            # 2. The port that the client initially connected to (for outbound)
+            # 3. The port the server is listening on (for inbound responses)
+            def _identify_server_port(src_port: int, dst_port: int, src_is_local: bool, dst_is_local: bool) -> int:
+                """Identify which port is the server's well-known port."""
+                # Common well-known service ports
+                well_known_ports = {80, 443, 22, 21, 25, 53, 110, 143, 993, 995, 3306, 5432, 8080, 8443}
+                
+                # If one port is well-known, it's the server port
+                if src_port in well_known_ports and dst_port not in well_known_ports:
+                    return src_port
+                if dst_port in well_known_ports and src_port not in well_known_ports:
+                    return dst_port
+                
+                # If one port is < 1024 (privileged), it's likely the server port
+                if src_port < 1024 and dst_port >= 1024:
+                    return src_port
+                if dst_port < 1024 and src_port >= 1024:
+                    return dst_port
+                
+                # If source is local and dest is not, dest_port is the server port (outbound)
+                if src_is_local and not dst_is_local:
+                    return dst_port
+                
+                # If dest is local and source is not, source_port is the server port (inbound)
+                if dst_is_local and not src_is_local:
+                    return src_port
+                
+                # Default: use the lower port number (often the server)
+                return min(src_port, dst_port)
+            
             # Normalize flow key to always use (client_ip, server_ip, server_port, protocol)
             # Client must be RFC1918, server must be public (unless abnormal flow)
-            # For bidirectional matching: server_port is always the well-known port (typically < 1024 or common service port)
-            # For outbound: server_port = dest_port (the port we're connecting to)
-            # For inbound: server_port = source_port (the port the server is responding from, which should match the original dest_port)
             is_abnormal = False
             if source_is_local and not dest_is_local:
                 # Outbound: local client -> external server
                 client_ip = source_ip
                 server_ip = dest_ip
-                server_port = dest_port
+                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
                 is_outbound_packet = True
             elif dest_is_local and not source_is_local:
                 # Inbound response: external server -> local client
                 # Normalize to same flow key: client is RFC1918, server is public
-                # The server's source_port in the response is the port it's listening on (e.g., 443)
-                # This should match the dest_port from the original outbound request
                 client_ip = dest_ip
                 server_ip = source_ip
-                server_port = source_port  # Server's listening port (matches original dest_port)
+                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
                 is_outbound_packet = False
             elif source_is_local and dest_is_local:
                 # Both local - use source as client (RFC1918)
                 client_ip = source_ip
                 server_ip = dest_ip
-                server_port = dest_port
+                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
                 is_outbound_packet = True
             else:
                 # Both external - mark as abnormal flow
                 # For abnormal flows, we can't normalize to client/server, so use source/dest as-is
                 client_ip = source_ip
                 server_ip = dest_ip
-                server_port = dest_port
+                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
                 is_outbound_packet = True
                 is_abnormal = True
             
