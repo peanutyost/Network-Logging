@@ -53,7 +53,11 @@
       
       <div v-if="loading" class="loading">Loading...</div>
       
-      <table v-else class="analytics-table">
+      <div v-else-if="!loading && allStats.length === 0" class="no-data">
+        No traffic data available. Try adjusting the date range or check if packet capture is running.
+      </div>
+      
+      <table v-else-if="!loading && paginatedStats.length > 0" class="analytics-table">
         <thead>
           <tr>
             <th>Domain</th>
@@ -78,7 +82,7 @@
         </tbody>
       </table>
       
-      <div v-if="!loading && paginatedStats.length === 0 && filteredStats.length === 0" class="no-data">
+      <div v-else-if="!loading && paginatedStats.length === 0 && filteredStats.length === 0 && allStats.length > 0" class="no-data">
         No external domains found{{ filterRfc1918 || filterMulticast ? ' (after filtering)' : '' }}.
       </div>
       <div v-else-if="!loading && paginatedStats.length === 0 && filteredStats.length > 0" class="no-data">
@@ -151,15 +155,39 @@ export default {
         const startTime = this.startDate ? new Date(this.startDate) : null
         const endTime = this.endDate ? new Date(this.endDate) : null
         
-        // Load all data (or a large chunk) to allow client-side filtering and pagination
-        // This ensures pagination works correctly with client-side filters
-        const response = await api.getStatsPerDomainPerClient(10000, 0, startTime, endTime, null)
-        this.allStats = response.stats || []
+        // Load data in chunks (API limit is 1000 per request)
+        // We'll load multiple pages to get as much data as possible for client-side filtering
+        const allStats = []
+        const pageSize = 1000
+        let offset = 0
+        let hasMore = true
+        
+        while (hasMore) {
+          const response = await api.getStatsPerDomainPerClient(pageSize, offset, startTime, endTime, null)
+          const stats = response.stats || []
+          allStats.push(...stats)
+          
+          // If we got fewer results than requested, we've reached the end
+          if (stats.length < pageSize) {
+            hasMore = false
+          } else {
+            offset += pageSize
+            // Limit to reasonable number of pages to avoid infinite loops
+            if (offset >= 10000) {
+              hasMore = false
+            }
+          }
+        }
+        
+        this.allStats = allStats
         
         // Reset to first page when data is reloaded
         this.currentPage = 1
+        
+        console.log(`Loaded ${allStats.length} stats entries`)
       } catch (error) {
         console.error('Error loading analytics data:', error)
+        console.error('Error details:', error.response?.data || error.message)
         this.allStats = []
       } finally {
         this.loading = false
