@@ -722,5 +722,10 @@ async def get_custom_feed_indicators(
     if offset < 0:
         raise HTTPException(status_code=400, detail="Offset must be >= 0")
     
-    indicators = db.get_custom_feed_indicators(feed_name, limit=limit, offset=offset)
-    return {"indicators": indicators, "count": len(indicators)}
+    try:
+        indicators = db.get_custom_feed_indicators(feed_name, limit=limit, offset=offset)
+        return {"indicators": indicators, "count": len(indicators)}
+    except Exception as e:
+        logger.error(f"Error getting custom feed indicators for {feed_name}: {e}", exc_info=True)
+        # Return empty list if feed doesn't exist or has no indicators
+        return {"indicators": [], "count": 0}

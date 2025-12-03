@@ -239,11 +239,14 @@ export default {
       customFeedIndicators: []
     }
   },
-  mounted() {
-    this.loadFeeds()
-    this.loadConfig()
-    this.loadCustomFeedIndicators()
+  async mounted() {
     window.addEventListener('timezone-changed', this.handleTimezoneChange)
+    await this.loadFeeds()
+    await this.loadConfig()
+    // Load custom feed indicators (non-blocking, fails silently if feed doesn't exist)
+    this.loadCustomFeedIndicators().catch(() => {
+      // Silently fail if custom feed doesn't exist yet
+    })
   },
   beforeUnmount() {
     window.removeEventListener('timezone-changed', this.handleTimezoneChange)
@@ -479,10 +482,9 @@ export default {
         const response = await api.getCustomFeedIndicators(this.customFeedName, 1000, 0)
         this.customFeedIndicators = response.indicators || []
       } catch (error) {
-        // Feed might not exist yet, that's okay
-        if (error.response?.status !== 404) {
-          console.error('Error loading custom feed indicators:', error)
-        }
+        // Feed might not exist yet, that's okay - just set empty array
+        // Silently handle errors - feed might not exist yet
+        console.debug('Could not load custom feed indicators (feed may not exist yet):', error)
         this.customFeedIndicators = []
       }
     }
