@@ -66,7 +66,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="stat in filteredStats" :key="`${stat.domain}-${stat.client_ip}`">
+          <tr v-for="stat in paginatedStats" :key="`${stat.domain}-${stat.client_ip}`">
             <td>{{ stat.domain }}</td>
             <td>{{ stat.client_ip }}</td>
             <td>{{ formatBytes(stat.total_bytes) }}</td>
@@ -78,8 +78,11 @@
         </tbody>
       </table>
       
-      <div v-if="!loading && filteredStats.length === 0" class="no-data">
+      <div v-if="!loading && paginatedStats.length === 0 && filteredStats.length === 0" class="no-data">
         No external domains found{{ filterRfc1918 || filterMulticast ? ' (after filtering)' : '' }}.
+      </div>
+      <div v-else-if="!loading && paginatedStats.length === 0 && filteredStats.length > 0" class="no-data">
+        No results on this page. Please go to a previous page.
       </div>
       
       <div v-if="totalPages > 1" class="pagination">
@@ -128,15 +131,14 @@ export default {
   name: 'TrafficAnalytics',
   data() {
     return {
-      stats: [],
+      allStats: [], // Store all loaded stats before filtering
       loading: false,
       startDate: null,
       endDate: null,
       filterRfc1918: false,
       filterMulticast: false,
       currentPage: 1,
-      itemsPerPage: 50,
-      totalCount: 0
+      itemsPerPage: 50
     }
   },
   mounted() {
@@ -148,15 +150,17 @@ export default {
       try {
         const startTime = this.startDate ? new Date(this.startDate) : null
         const endTime = this.endDate ? new Date(this.endDate) : null
-        const offset = (this.currentPage - 1) * this.itemsPerPage
         
-        const response = await api.getStatsPerDomainPerClient(this.itemsPerPage, offset, startTime, endTime, null)
-        this.stats = response.stats || []
-        this.totalCount = response.total || 0
+        // Load all data (or a large chunk) to allow client-side filtering and pagination
+        // This ensures pagination works correctly with client-side filters
+        const response = await api.getStatsPerDomainPerClient(10000, 0, startTime, endTime, null)
+        this.allStats = response.stats || []
+        
+        // Reset to first page when data is reloaded
+        this.currentPage = 1
       } catch (error) {
         console.error('Error loading analytics data:', error)
-        this.stats = []
-        this.totalCount = 0
+        this.allStats = []
       } finally {
         this.loading = false
       }
@@ -169,7 +173,6 @@ export default {
     onPageSizeChange() {
       // Reset to first page when changing page size
       this.currentPage = 1
-      this.loadData()
     },
     formatBytes(bytes) {
       if (bytes === null || bytes === undefined || isNaN(bytes) || bytes === 0) return '0 B'
@@ -222,12 +225,14 @@ export default {
       }
     },
     applyFilter() {
+      // Reset to first page when filters change
+      this.currentPage = 1
       this.$forceUpdate()
     }
   },
   computed: {
     filteredStats() {
-      let filtered = this.stats
+      let filtered = this.allStats
       
       // Filter out entries where domain is actually an IP address (we only want external domains)
       // Also filter by RFC1918 and multicast if enabled
@@ -263,6 +268,16 @@ export default {
       })
       
       return filtered
+    },
+    paginatedStats() {
+      // Apply pagination to filtered results
+      const start = (this.currentPage - 1) * this.itemsPerPage
+      const end = start + this.itemsPerPage
+      return this.filteredStats.slice(start, end)
+    },
+    totalCount() {
+      // Total count of filtered results
+      return this.filteredStats.length
     },
     totalPages() {
       return Math.ceil(this.totalCount / this.itemsPerPage) || 1
