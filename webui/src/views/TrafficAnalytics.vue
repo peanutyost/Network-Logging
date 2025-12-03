@@ -168,7 +168,7 @@ export default {
     goToPage(page) {
       if (page < 1 || page > this.totalPages) return
       this.currentPage = page
-      this.loadData()
+      // Don't reload data - pagination is done client-side on already loaded data
     },
     onPageSizeChange() {
       // Reset to first page when changing page size
