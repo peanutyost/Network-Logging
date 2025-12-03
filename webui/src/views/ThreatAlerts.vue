@@ -209,7 +209,6 @@ export default {
         this.unresolvedAlertsCount = await api.getThreatAlertsCount(null, false)
       } catch (error) {
         console.error('Error loading threat alerts:', error)
-        alert('Error loading threat alerts. Please try again.')
       } finally {
         this.loading = false
       }
@@ -229,27 +228,24 @@ export default {
           this.alerts = this.alerts.filter(a => a.id !== alertId)
         }
         // Update counts
-        await this.loadAlerts()
+        this.totalAlertsCount = await api.getThreatAlertsCount(null, this.showResolved ? null : false)
+        this.unresolvedAlertsCount = await api.getThreatAlertsCount(null, false)
       } catch (error) {
         console.error('Error resolving alert:', error)
-        alert('Error resolving alert. Please try again.')
       } finally {
         this.resolving = null
       }
     },
     async resolveGroup(group) {
-      if (!confirm(`Resolve all ${group.unresolvedCount} unresolved alert(s) for ${group.domain} from ${group.source_ip}?`)) {
-        return
-      }
-      
       this.resolvingGroup = group.key
       try {
         const unresolvedIds = group.alerts.filter(a => !a.resolved).map(a => a.id)
         if (unresolvedIds.length === 0) {
+          this.resolvingGroup = null
           return
         }
         
-        const result = await api.resolveThreatAlertsBatch(unresolvedIds)
+        await api.resolveThreatAlertsBatch(unresolvedIds)
         
         // Update alerts in the list
         unresolvedIds.forEach(id => {
@@ -266,22 +262,15 @@ export default {
         }
         
         // Update counts
-        await this.loadAlerts()
-        
-        alert(`Successfully resolved ${result.resolved_count} alert(s)!`)
+        this.totalAlertsCount = await api.getThreatAlertsCount(null, this.showResolved ? null : false)
+        this.unresolvedAlertsCount = await api.getThreatAlertsCount(null, false)
       } catch (error) {
         console.error('Error resolving group:', error)
-        alert('Error resolving alerts. Please try again.')
       } finally {
         this.resolvingGroup = null
       }
     },
     async addToWhitelist(alert) {
-      const indicator = alert.domain || alert.ip
-      if (!confirm(`Add ${indicator} to whitelist? This will resolve all alerts for this indicator.`)) {
-        return
-      }
-      
       this.whitelisting = alert.id
       try {
         const entry = {
@@ -293,11 +282,8 @@ export default {
         await api.addThreatWhitelist(entry)
         // Reload alerts to reflect the resolved status
         await this.loadAlerts()
-        alert(`Successfully added ${indicator} to whitelist! All related alerts have been resolved.`)
       } catch (error) {
         console.error('Error adding to whitelist:', error)
-        const errorMsg = error.response?.data?.detail || 'Error adding to whitelist. Please try again.'
-        alert(errorMsg)
       } finally {
         this.whitelisting = null
       }
