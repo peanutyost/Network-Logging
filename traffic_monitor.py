@@ -53,77 +53,63 @@ class TrafficMonitor:
             if not all([source_ip, dest_ip, dest_port, source_port, protocol]):
                 return
             
-            # Track bidirectional traffic properly
-            # Ensure client is always RFC1918 (private) IP and server is always public (outside) IP
+            # Simple logic: RFC1918 IP is always the client (local), non-RFC1918 is server (external)
             source_is_local = self._is_local_ip(source_ip)
             dest_is_local = self._is_local_ip(dest_ip)
             
-            # Identify the well-known server port for flow normalization
-            # The server port is typically:
-            # 1. A well-known port (< 1024) or common service port (80, 443, etc.)
-            # 2. The port that the client initially connected to (for outbound)
-            # 3. The port the server is listening on (for inbound responses)
-            def _identify_server_port(src_port: int, dst_port: int, src_is_local: bool, dst_is_local: bool) -> int:
-                """Identify which port is the server's well-known port."""
-                # Common well-known service ports
-                well_known_ports = {80, 443, 22, 21, 25, 53, 110, 143, 993, 995, 3306, 5432, 8080, 8443}
-                
-                # If one port is well-known, it's the server port
-                if src_port in well_known_ports and dst_port not in well_known_ports:
-                    return src_port
-                if dst_port in well_known_ports and src_port not in well_known_ports:
-                    return dst_port
-                
-                # If one port is < 1024 (privileged), it's likely the server port
-                if src_port < 1024 and dst_port >= 1024:
-                    return src_port
-                if dst_port < 1024 and src_port >= 1024:
-                    return dst_port
-                
-                # If source is local and dest is not, dest_port is the server port (outbound)
-                if src_is_local and not dst_is_local:
-                    return dst_port
-                
-                # If dest is local and source is not, source_port is the server port (inbound)
-                if dst_is_local and not src_is_local:
-                    return src_port
-                
-                # Default: use the lower port number (often the server)
-                return min(src_port, dst_port)
-            
             # Normalize flow key to always use (client_ip, server_ip, server_port, protocol)
-            # Client must be RFC1918, server must be public (unless abnormal flow)
+            # Client is always RFC1918, server is always public (unless abnormal flow)
             is_abnormal = False
+            
             if source_is_local and not dest_is_local:
-                # Outbound: local client -> external server
+                # Outbound: RFC1918 client -> external server
                 client_ip = source_ip
                 server_ip = dest_ip
-                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
+                server_port = dest_port  # Server port is the destination port (where client connects to)
                 is_outbound_packet = True
             elif dest_is_local and not source_is_local:
-                # Inbound response: external server -> local client
+                # Inbound: external server -> RFC1918 client
                 # Normalize to same flow key: client is RFC1918, server is public
                 client_ip = dest_ip
                 server_ip = source_ip
-                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
+                server_port = source_port  # Server port is the source port (server's listening port)
                 is_outbound_packet = False
             elif source_is_local and dest_is_local:
-                # Both local - determine direction based on port (ephemeral ports are typically >= 49152)
-                # The port that's NOT ephemeral is likely the server
-                # For local-to-local, we'll use source as client for consistency
-                client_ip = source_ip
-                server_ip = dest_ip
-                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
-                # If source port is ephemeral (>= 49152) and dest port is not, it's likely outbound
-                # Otherwise, assume it's outbound (source -> dest)
-                is_outbound_packet = (source_port >= 49152 and dest_port < 49152) or (source_port < dest_port)
+                # Both local (RFC1918 to RFC1918) - use port numbers to determine client vs server
+                # Ephemeral ports (typically >= 49152) indicate client, well-known ports indicate server
+                # IANA ephemeral port range: 49152-65535 (Linux), Windows uses 49152-65535
+                source_is_ephemeral = source_port >= 49152
+                dest_is_ephemeral = dest_port >= 49152
+                
+                if source_is_ephemeral and not dest_is_ephemeral:
+                    # Source is client (ephemeral port), dest is server (well-known port)
+                    client_ip = source_ip
+                    server_ip = dest_ip
+                    server_port = dest_port
+                    is_outbound_packet = True
+                elif dest_is_ephemeral and not source_is_ephemeral:
+                    # Dest is client (ephemeral port), source is server (well-known port)
+                    client_ip = dest_ip
+                    server_ip = source_ip
+                    server_port = source_port
+                    is_outbound_packet = False
+                else:
+                    # Both ephemeral or both well-known - use lower port as server, source as client
+                    if source_port < dest_port:
+                        client_ip = source_ip
+                        server_ip = dest_ip
+                        server_port = dest_port
+                        is_outbound_packet = True
+                    else:
+                        client_ip = dest_ip
+                        server_ip = source_ip
+                        server_port = source_port
+                        is_outbound_packet = False
             else:
                 # Both external - mark as abnormal flow
-                # For abnormal flows, we can't normalize to client/server, so use source/dest as-is
                 client_ip = source_ip
                 server_ip = dest_ip
-                server_port = _identify_server_port(source_port, dest_port, source_is_local, dest_is_local)
-                # For external-to-external, assume source -> dest is outbound
+                server_port = dest_port
                 is_outbound_packet = True
                 is_abnormal = True
             
@@ -148,6 +134,13 @@ class TrafficMonitor:
             if 'is_outbound_packet' not in locals():
                 logger.error(f"is_outbound_packet not set for packet {source_ip}:{source_port} -> {dest_ip}:{dest_port}")
                 return
+            
+            # Log direction detection for debugging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Packet direction: source={source_ip}:{source_port} (local={source_is_local}) -> "
+                           f"dest={dest_ip}:{dest_port} (local={dest_is_local}), "
+                           f"normalized: client={client_ip} -> server={server_ip}:{server_port}, "
+                           f"is_outbound={is_outbound_packet}, packet_size={packet_size}")
             
             if is_outbound_packet:
                 # Outbound packet: client -> server
@@ -236,12 +229,13 @@ class TrafficMonitor:
                 elif bytes_sent == bytes_received and bytes_sent > 0:
                     logger.warning(f"Flow {flow_key} has equal bytes_sent and bytes_received ({bytes_sent}). "
                                  f"This may indicate a direction detection issue.")
-                elif bytes_sent == 0 and packet_count > 0:
-                    logger.debug(f"Flow {flow_key} has {packet_count} packets but bytes_sent=0. "
-                               f"bytes_received={bytes_received}")
-                elif bytes_received == 0 and packet_count > 0:
-                    logger.debug(f"Flow {flow_key} has {packet_count} packets but bytes_received=0. "
-                               f"bytes_sent={bytes_sent}")
+                elif bytes_sent == 0 and packet_count > 0 and bytes_received > 0:
+                    logger.warning(f"Flow {flow_key} has {packet_count} packets, {bytes_received} bytes_received, but 0 bytes_sent. "
+                                 f"This suggests outbound packets may not be detected correctly. "
+                                 f"Check direction detection logic.")
+                elif bytes_received == 0 and packet_count > 0 and bytes_sent > 0:
+                    logger.warning(f"Flow {flow_key} has {packet_count} packets, {bytes_sent} bytes_sent, but 0 bytes_received. "
+                                 f"This suggests inbound packets may not be detected correctly.")
                 
                 self.db.upsert_traffic_flow(
                     source_ip=client_ip,  # RFC1918 client IP (or source IP for abnormal flows)
