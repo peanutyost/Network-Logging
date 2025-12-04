@@ -1579,13 +1579,17 @@ class PostgreSQLDatabase(DatabaseBase):
         conn = self._get_connection()
         try:
             with conn.cursor() as cur:
+                # Normalize empty strings to None for INET type compatibility
+                domain_value = domain.lower() if domain and domain.strip() else None
+                ip_value = ip if ip and ip.strip() else None
+                
                 cur.execute("""
                     INSERT INTO threat_indicators (feed_name, indicator_type, domain, ip)
                     VALUES (%s, %s, %s, %s)
                     ON CONFLICT (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip, ''))
                     DO NOTHING
                     RETURNING id
-                """, (feed_name, indicator_type, domain.lower() if domain else None, ip))
+                """, (feed_name, indicator_type, domain_value, ip_value))
                 
                 result = cur.fetchone()
                 indicator_id = result[0] if result else None
