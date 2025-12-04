@@ -144,7 +144,11 @@ class TrafficMonitor:
                 }
             
             # Update flow statistics based on direction
-            # Log for debugging if bytes_sent is 0 after adding
+            # Ensure is_outbound_packet is explicitly set (defensive check)
+            if 'is_outbound_packet' not in locals():
+                logger.error(f"is_outbound_packet not set for packet {source_ip}:{source_port} -> {dest_ip}:{dest_port}")
+                return
+            
             if is_outbound_packet:
                 # Outbound packet: client -> server
                 self.flow_cache[flow_key]['bytes_sent'] += packet_size
@@ -226,10 +230,18 @@ class TrafficMonitor:
                 bytes_received = max(0, flow_data.get('bytes_received', 0))
                 packet_count = max(0, flow_data.get('packet_count', 0))
                 
-                # Log if bytes_sent is 0 but we have packets (might indicate an issue)
-                if bytes_sent == 0 and packet_count > 0 and logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Warning: Flow {flow_key} has {packet_count} packets but bytes_sent=0. "
+                # Log warnings for potential issues
+                if bytes_sent == 0 and bytes_received == 0 and packet_count > 0:
+                    logger.warning(f"Flow {flow_key} has {packet_count} packets but both bytes_sent and bytes_received are 0")
+                elif bytes_sent == bytes_received and bytes_sent > 0:
+                    logger.warning(f"Flow {flow_key} has equal bytes_sent and bytes_received ({bytes_sent}). "
+                                 f"This may indicate a direction detection issue.")
+                elif bytes_sent == 0 and packet_count > 0:
+                    logger.debug(f"Flow {flow_key} has {packet_count} packets but bytes_sent=0. "
                                f"bytes_received={bytes_received}")
+                elif bytes_received == 0 and packet_count > 0:
+                    logger.debug(f"Flow {flow_key} has {packet_count} packets but bytes_received=0. "
+                               f"bytes_sent={bytes_sent}")
                 
                 self.db.upsert_traffic_flow(
                     source_ip=client_ip,  # RFC1918 client IP (or source IP for abnormal flows)
