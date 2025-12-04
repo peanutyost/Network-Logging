@@ -1586,7 +1586,7 @@ class PostgreSQLDatabase(DatabaseBase):
                 cur.execute("""
                     INSERT INTO threat_indicators (feed_name, indicator_type, domain, ip)
                     VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(ip, ''))
+                    ON CONFLICT (feed_name, indicator_type, COALESCE(domain, ''), COALESCE(CAST(ip AS TEXT), ''))
                     DO NOTHING
                     RETURNING id
                 """, (feed_name, indicator_type, domain_value, ip_value))
