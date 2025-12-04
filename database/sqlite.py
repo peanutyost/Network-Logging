@@ -567,11 +567,11 @@ class SQLiteDatabase(DatabaseBase):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
                     DO UPDATE SET
-                        bytes_sent = bytes_sent + excluded.bytes_sent,
-                        bytes_received = bytes_received + excluded.bytes_received,
-                        packet_count = packet_count + excluded.packet_count,
+                        bytes_sent = traffic_flows.bytes_sent + excluded.bytes_sent,
+                        bytes_received = traffic_flows.bytes_received + excluded.bytes_received,
+                        packet_count = traffic_flows.packet_count + excluded.packet_count,
                         last_update = CURRENT_TIMESTAMP,
-                        domain = COALESCE(excluded.domain, domain),
+                        domain = COALESCE(excluded.domain, traffic_flows.domain),
                         is_orphaned = excluded.is_orphaned,
                         is_abnormal = excluded.is_abnormal,
                         first_seen = CASE 
@@ -592,11 +592,11 @@ class SQLiteDatabase(DatabaseBase):
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (source_ip, destination_ip, destination_port, protocol)
                     DO UPDATE SET
-                        bytes_sent = bytes_sent + excluded.bytes_sent,
-                        bytes_received = bytes_received + excluded.bytes_received,
-                        packet_count = packet_count + excluded.packet_count,
+                        bytes_sent = traffic_flows.bytes_sent + excluded.bytes_sent,
+                        bytes_received = traffic_flows.bytes_received + excluded.bytes_received,
+                        packet_count = traffic_flows.packet_count + excluded.packet_count,
                         last_update = CURRENT_TIMESTAMP,
-                        domain = COALESCE(excluded.domain, domain),
+                        domain = COALESCE(excluded.domain, traffic_flows.domain),
                         is_orphaned = excluded.is_orphaned,
                         is_abnormal = excluded.is_abnormal
                 """, (
