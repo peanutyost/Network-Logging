@@ -1686,8 +1686,6 @@ class PostgreSQLDatabase(DatabaseBase):
             return []
         finally:
             self._return_connection(conn)
-        finally:
-            self._return_connection(conn)
     
     def check_threat_indicator(
         self,
