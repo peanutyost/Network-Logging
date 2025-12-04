@@ -273,10 +273,16 @@ export default {
     async addToWhitelist(alert) {
       this.whitelisting = alert.id
       try {
+        // Determine indicator_type based on which field is populated
+        // This ensures we use the correct type even if the alert has incorrect indicator_type
+        const domain = alert.domain || null
+        const ip = alert.ip || null
+        const indicator_type = domain ? 'domain' : (ip ? 'ip' : alert.indicator_type)
+        
         const entry = {
-          indicator_type: alert.indicator_type,
-          domain: alert.domain || null,
-          ip: alert.ip || null,
+          indicator_type: indicator_type,
+          domain: domain,
+          ip: ip,
           reason: `Added from threat alert #${alert.id}`
         }
         await api.addThreatWhitelist(entry)
