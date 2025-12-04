@@ -37,7 +37,7 @@
 
     <div class="top-domains">
       <div class="domains-header">
-        <h2>External Domains by Traffic (Per Client)</h2>
+        <h2>Traffic Analytics (Grouped by Destination & Source)</h2>
         <div class="page-size-selector">
           <label>
             Items per page:
@@ -60,6 +60,7 @@
       <table v-else-if="!loading && paginatedStats.length > 0" class="analytics-table">
         <thead>
           <tr>
+            <th style="width: 30px;"></th>
             <th>Domain</th>
             <th>Client IP</th>
             <th>Total Bytes</th>
@@ -70,15 +71,59 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="stat in paginatedStats" :key="`${stat.domain}-${stat.client_ip}`">
-            <td>{{ stat.domain }}</td>
-            <td>{{ stat.client_ip }}</td>
-            <td>{{ formatBytes(stat.total_bytes) }}</td>
-            <td>{{ formatBytes(stat.bytes_sent) }}</td>
-            <td>{{ formatBytes(stat.bytes_received) }}</td>
-            <td>{{ formatNumber(stat.total_packets) }}</td>
-            <td>{{ formatNumber(stat.flow_count) }}</td>
-          </tr>
+          <template v-for="group in paginatedStats" :key="`${group.domain}-${group.client_ip}`">
+            <tr 
+              class="group-row" 
+              :class="{ 'expanded': expandedGroups.has(`${group.domain}-${group.client_ip}`) }"
+              @click="toggleGroup(group)"
+            >
+              <td class="expand-icon">
+                <span v-if="group.flows && group.flows.length > 0">
+                  {{ expandedGroups.has(`${group.domain}-${group.client_ip}`) ? '▼' : '▶' }}
+                </span>
+              </td>
+              <td>{{ group.domain }}</td>
+              <td>{{ group.client_ip }}</td>
+              <td>{{ formatBytes(group.total_bytes) }}</td>
+              <td>{{ formatBytes(group.bytes_sent) }}</td>
+              <td>{{ formatBytes(group.bytes_received) }}</td>
+              <td>{{ formatNumber(group.total_packets) }}</td>
+              <td>{{ formatNumber(group.flow_count) }}</td>
+            </tr>
+            <tr 
+              v-if="expandedGroups.has(`${group.domain}-${group.client_ip}`) && group.flows && group.flows.length > 0" 
+              class="detail-row"
+            >
+              <td colspan="8" class="detail-cell">
+                <table class="flows-table">
+                  <thead>
+                    <tr>
+                      <th>Server IP</th>
+                      <th>Port</th>
+                      <th>Protocol</th>
+                      <th>Total Bytes</th>
+                      <th>Sent</th>
+                      <th>Received</th>
+                      <th>Packets</th>
+                      <th>Last Seen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="flow in group.flows" :key="`${flow.server_ip}-${flow.server_port}-${flow.protocol}`">
+                      <td>{{ flow.server_ip }}</td>
+                      <td>{{ flow.server_port }}</td>
+                      <td>{{ flow.protocol }}</td>
+                      <td>{{ formatBytes(flow.total_bytes) }}</td>
+                      <td>{{ formatBytes(flow.bytes_sent) }}</td>
+                      <td>{{ formatBytes(flow.bytes_received) }}</td>
+                      <td>{{ formatNumber(flow.total_packets) }}</td>
+                      <td>{{ formatDate(flow.last_seen) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
       
@@ -142,7 +187,8 @@ export default {
       filterRfc1918: false,
       filterMulticast: false,
       currentPage: 1,
-      itemsPerPage: 50
+      itemsPerPage: 50,
+      expandedGroups: new Set() // Track which groups are expanded
     }
   },
   mounted() {
@@ -183,6 +229,9 @@ export default {
         
         // Reset to first page when data is reloaded
         this.currentPage = 1
+        
+        // Clear expanded groups when data is reloaded
+        this.expandedGroups.clear()
         
         console.log(`Loaded ${allStats.length} stats entries`)
       } catch (error) {
@@ -256,6 +305,20 @@ export default {
       // Reset to first page when filters change
       this.currentPage = 1
       this.$forceUpdate()
+    },
+    toggleGroup(group) {
+      const key = `${group.domain}-${group.client_ip}`
+      if (this.expandedGroups.has(key)) {
+        this.expandedGroups.delete(key)
+      } else {
+        this.expandedGroups.add(key)
+      }
+      this.$forceUpdate()
+    },
+    formatDate(dateString) {
+      if (!dateString) return ''
+      const date = new Date(dateString)
+      return date.toLocaleString()
     }
   },
   computed: {
@@ -297,15 +360,56 @@ export default {
       
       return filtered
     },
+    groupedStats() {
+      // Group flows by domain and client_ip
+      const groups = new Map()
+      
+      this.filteredStats.forEach(flow => {
+        const key = `${flow.domain}-${flow.client_ip}`
+        
+        if (!groups.has(key)) {
+          groups.set(key, {
+            domain: flow.domain,
+            client_ip: flow.client_ip,
+            total_bytes: 0,
+            bytes_sent: 0,
+            bytes_received: 0,
+            total_packets: 0,
+            flow_count: 0,
+            flows: []
+          })
+        }
+        
+        const group = groups.get(key)
+        group.total_bytes += flow.total_bytes || 0
+        group.bytes_sent += flow.bytes_sent || 0
+        group.bytes_received += flow.bytes_received || 0
+        group.total_packets += flow.total_packets || 0
+        group.flow_count += flow.flow_count || 1
+        group.flows.push({
+          server_ip: flow.server_ip,
+          server_port: flow.server_port,
+          protocol: flow.protocol,
+          total_bytes: flow.total_bytes || 0,
+          bytes_sent: flow.bytes_sent || 0,
+          bytes_received: flow.bytes_received || 0,
+          total_packets: flow.total_packets || 0,
+          last_seen: flow.last_seen
+        })
+      })
+      
+      // Convert map to array and sort by total_bytes descending
+      return Array.from(groups.values()).sort((a, b) => b.total_bytes - a.total_bytes)
+    },
     paginatedStats() {
-      // Apply pagination to filtered results
+      // Apply pagination to grouped results
       const start = (this.currentPage - 1) * this.itemsPerPage
       const end = start + this.itemsPerPage
-      return this.filteredStats.slice(start, end)
+      return this.groupedStats.slice(start, end)
     },
     totalCount() {
-      // Total count of filtered results
-      return this.filteredStats.length
+      // Total count of grouped results
+      return this.groupedStats.length
     },
     totalPages() {
       return Math.ceil(this.totalCount / this.itemsPerPage) || 1
@@ -443,6 +547,62 @@ export default {
   text-align: center;
   padding: 2rem;
   color: #666;
+}
+
+.group-row {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.group-row:hover {
+  background-color: #f8f9fa;
+}
+
+.group-row.expanded {
+  background-color: #e9ecef;
+}
+
+.expand-icon {
+  text-align: center;
+  font-size: 0.8rem;
+  color: #666;
+  user-select: none;
+}
+
+.detail-row {
+  background-color: #f8f9fa;
+}
+
+.detail-cell {
+  padding: 1rem !important;
+  background-color: #f8f9fa;
+}
+
+.flows-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: white;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.flows-table th {
+  background-color: #e9ecef;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.flows-table td {
+  padding: 0.5rem;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.flows-table tr:last-child td {
+  border-bottom: none;
 }
 </style>
 
